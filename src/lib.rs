@@ -1,15 +1,14 @@
+//! # wif-weave
+//!
+//! `wif-weave` is a collection of utilities for parsing `.wif` weaving files.
+//!
+//! ## Crate Features
+//!
+//! ### `tokio`
+//!
+//!
+//!
+
 // TODO
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod wif;
