@@ -13,3 +13,6 @@ configparser = { version = "3.1.0", features = ["indexmap"] }
 
 [features]
 async = ["configparser/async-std"]
+
+[package.metadata.docs.rs]
+all-features = true

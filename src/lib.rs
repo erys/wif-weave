@@ -4,7 +4,7 @@
 //!
 //! ## Crate Features
 //!
-//! ### `tokio`
+//! ### `async`
 //!
 //!
 //!
