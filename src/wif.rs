@@ -1,11 +1,11 @@
 //! The wif module provides classes needed to extract data from a `.wif` file
 
+use crate::wif::data::{ColorPalette, WifSequence};
 use configparser::ini::{Ini, WriteOptions};
+use data::WifParseable;
 use indexmap::IndexMap;
-use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
-use std::num::ParseIntError;
 use std::path::Path;
 use strum::{Display, EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 use thiserror::Error;
@@ -18,7 +18,7 @@ pub const WIF_DATE: &str = "April 20, 1997";
 pub const WIF_VERSION: &str = "1.1";
 
 /// Representation of the data in a `.wif` file
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Wif {
     inner_map: IndexMap<String, IndexMap<String, Option<String>>>,
     treadling: Option<WifSequence<Vec<u32>>>,
@@ -28,13 +28,17 @@ pub struct Wif {
     tie_up: Option<WifSequence<Vec<u32>>>,
 }
 
+pub mod data;
+
 #[cfg(feature = "async")]
 impl Wif {
     /// Asynchronously read a file and parse it into a [Wif]
-    pub async fn load_async<T: AsRef<Path>>(path: T) -> Result<Self, String> {
+    pub async fn load_async<T: AsRef<Path>>(
+        path: T,
+    ) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
         let mut ini = Ini::new();
-        ini.load_async(path).await?;
-        Self::from_ini(&ini)
+        let map = ini.load_async(path).await?;
+        Ok(Self::from_ini(map))
     }
 
     /// Asynchronously write to a `.wif` file
@@ -52,22 +56,41 @@ impl Wif {
         options
     }
 
-    fn from_ini(ini: &Ini) -> Result<Self, String> {
-        todo!();
+    fn from_ini(
+        mut map: IndexMap<String, IndexMap<String, Option<String>>>,
+    ) -> (Self, HashMap<WifSection, ParseError>) {
+        let mut errors = HashMap::new();
+
+        (
+            Wif {
+                treadling: WifSection::Treadling.parse(&mut map, &mut errors),
+                threading: WifSection::Threading.parse(&mut map, &mut errors),
+                lift_plan: WifSection::LiftPlan.parse(&mut map, &mut errors),
+                color_palette: ColorPalette::maybe_build(
+                    WifSection::ColorPalette.parse(&mut map, &mut errors),
+                    WifSection::ColorTable.parse(&mut map, &mut errors),
+                ),
+                tie_up: WifSection::TieUp.parse(&mut map, &mut errors),
+                inner_map: map,
+            },
+            errors,
+        )
     }
 
     /// Construct a [Wif] from a file.
-    pub fn load<T: AsRef<Path>>(path: T) -> Result<Self, String> {
+    pub fn load<T: AsRef<Path>>(
+        path: T,
+    ) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
         let mut ini = Ini::new();
-        ini.load(path)?;
-        Self::from_ini(&ini)
+        let map = ini.load(path)?;
+        Ok(Self::from_ini(map))
     }
 
     /// Construct a [Wif] from the string contents of a `.wif`
-    pub fn read(text: String) -> Result<Self, String> {
+    pub fn read(text: String) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
         let mut ini = Ini::new();
-        ini.read(text)?;
-        Self::from_ini(&ini)
+        let map = ini.read(text)?;
+        Ok(Self::from_ini(map))
     }
 
     fn to_ini(&self) -> Ini {
@@ -130,13 +153,13 @@ impl Wif {
         if self.lift_plan.is_some() {
             contents.insert(LiftPlan);
         }
-        if self.color_palette.as_ref().map(|p| &p.colors).is_some() {
+        if self.color_palette.as_ref().map(|p| p.colors()).is_some() {
             contents.insert(ColorTable);
         }
         if self
             .color_palette
             .as_ref()
-            .map(|p| &p.color_range)
+            .map(|p| p.color_range())
             .is_some()
         {
             contents.insert(ColorPalette);
@@ -179,8 +202,11 @@ impl Wif {
 }
 
 /// Error when parsing Wif file
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum ParseError {
+    /// A required field is missing
+    #[error("Required field {0} is missing")]
+    MissingField(String),
     /// Missing value for a key
     #[error("Key {0} has no value")]
     MissingValue(String),
@@ -197,129 +223,6 @@ pub enum ParseError {
         /// expected type
         expected_type: String,
     },
-}
-
-/// Trait for entries in "array like" sections of `.wif`
-pub trait SequenceValue {
-    /// Whether this value should be treated as there or not
-    fn present(&self) -> bool;
-    /// parse from the string value in the `.wif`. Error is the expected type
-    fn parse(string_value: &str) -> Result<Self, String>
-    where
-        Self: Sized;
-}
-
-/// Color palette in a `.wif`. Other sections may reference colors in this palette by index
-#[derive(Clone, PartialEq, Debug)]
-pub struct ColorPalette {
-    color_range: Option<(u32, u32)>,
-    colors: Option<WifSequence<WifColor>>,
-}
-
-impl ColorPalette {
-    /// The color range of entries in the palette. May be 0-255, but some popular programs also use 0-999
-    pub fn color_range(&self) -> Option<(u32, u32)> {
-        self.color_range
-    }
-
-    /// The colors in the palette
-    pub fn colors(&self) -> Option<&WifSequence<WifColor>> {
-        self.colors.as_ref()
-    }
-}
-
-/// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
-/// The actual range is specified in [ColorPalette]
-#[derive(Clone, PartialEq, Debug)]
-pub struct WifColor(u32, u32, u32);
-
-impl SequenceValue for WifColor {
-    fn present(&self) -> bool {
-        true
-    }
-
-    fn parse(string_value: &str) -> Result<Self, String>
-    where
-        Self: Sized,
-    {
-        let values = string_value
-            .split(',')
-            .map(|s| s.trim().parse::<u32>())
-            .collect::<Result<Vec<u32>, ParseIntError>>()
-            .map_err(|_| String::from("color triple"))?;
-        if values.len() != 3 {
-            Err(String::from("color triple"))
-        } else {
-            Ok(WifColor(values[0], values[1], values[2]))
-        }
-    }
-}
-
-impl SequenceValue for u32 {
-    fn present(&self) -> bool {
-        *self > 0
-    }
-    fn parse(string_value: &str) -> Result<Self, String>
-    where
-        Self: Sized,
-    {
-        string_value
-            .trim()
-            .parse::<u32>()
-            .map_err(|_| String::from("non-negative integer"))
-    }
-}
-impl SequenceValue for Vec<u32> {
-    fn present(&self) -> bool {
-        !self.is_empty()
-    }
-    fn parse(string_value: &str) -> Result<Self, String>
-    where
-        Self: Sized,
-    {
-        let result: Result<Self, ParseIntError> = string_value
-            .split(",")
-            .map(|s| s.trim().parse::<u32>())
-            .collect();
-        result.map_err(|_| String::from("list of shafts"))
-    }
-}
-
-/// # Represents a single threading or treadling entry
-///
-/// A value of `0` represents no thread/treadle.
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
-pub struct SequenceEntry<T>
-where
-    T: SequenceValue + Clone,
-{
-    index: usize,
-    value: T,
-}
-
-impl<T: SequenceValue + Clone> SequenceEntry<T> {
-    /// Index of entry
-    pub fn index(&self) -> usize {
-        self.index
-    }
-
-    /// Returns the value of the entry.
-    ///
-    /// 0 indicates no entry at this index. To get [None] use [value_option][Self::value_option]
-    pub fn value(&self) -> &T {
-        &self.value
-    }
-
-    /// Returns value of the entry as an [Option]
-    ///
-    /// Similar to [value][Self::value] but returns [None] instead of `0`
-    pub fn value_option(&self) -> Option<&T> {
-        if self.value.present() {
-            Some(&self.value)
-        } else {
-            None
-        }
-    }
 }
 
 /// Validation errors for [WifSequence]
@@ -355,113 +258,6 @@ pub enum SequenceError {
         /// Duplicate index
         duplicate_index: usize,
     },
-}
-
-/// # Represents the sequence of numbers that compose a threading or treadling
-///
-/// [SequenceEntry]'s in the vector should be in order by in order by index, with no duplicates or
-/// missing entries, but this is not guaranteed when constructed from a `.wif` file.
-#[derive(PartialEq, Debug, Clone, Default)]
-pub struct WifSequence<T: Clone + SequenceValue>(Vec<SequenceEntry<T>>);
-
-impl<T: Clone + SequenceValue + Default> WifSequence<T> {
-    /// Constructs a new [WifSequence] from an array. This sequence will always be valid
-    pub fn from_array(sequence: &[T]) -> Self {
-        WifSequence(
-            sequence
-                .iter()
-                .enumerate()
-                .map(|(index, value)| SequenceEntry {
-                    index: index + 1,
-                    value: value.clone(),
-                })
-                .collect(),
-        )
-    }
-
-    /// Same as [from_array](Self::from_array) but it accepts [None] in place of 0 values
-    pub fn from_option_array(sequence: &[Option<T>]) -> Self {
-        WifSequence(
-            sequence
-                .iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    let value = value.as_ref();
-                    SequenceEntry {
-                        index: index + 1,
-                        value: value.unwrap_or(&Default::default()).clone(),
-                    }
-                })
-                .collect(),
-        )
-    }
-
-    /// Constructs a sequence from an [IndexMap]. Returns a parse error on invalid keys or values
-    pub fn from_index_map(
-        conf_data: &IndexMap<String, Option<String>>,
-    ) -> Result<Self, ParseError> {
-        Ok(WifSequence(
-            conf_data
-                .iter()
-                .map(|(key, value)| {
-                    let value = value
-                        .as_ref()
-                        .ok_or(ParseError::MissingValue(key.clone()))?;
-                    let index = key
-                        .parse::<usize>()
-                        .map_err(|_| ParseError::BadIntegerKey(key.clone()))?;
-
-                    let value = T::parse(value).map_err(|e| ParseError::BadValueType {
-                        key: key.clone(),
-                        value: value.clone(),
-                        expected_type: e,
-                    })?;
-                    Ok::<SequenceEntry<T>, ParseError>(SequenceEntry { index, value })
-                })
-                .collect::<Result<Vec<SequenceEntry<T>>, ParseError>>()?,
-        ))
-    }
-
-    /// Validates indices within the sequence to ensure that they are non-zero and strictly increasing
-    ///
-    /// ```
-    /// # use indexmap::indexmap;
-    /// # use wif_weave::wif::{SequenceError, WifSequence};
-    /// let map = indexmap! {
-    ///     String::from("0") => Some(String::from("1"))    
-    /// };
-    /// let sequence = WifSequence::<u32>::from_index_map(&map);
-    /// assert_eq!(SequenceError::ZeroError(0), sequence.unwrap().validate().unwrap_err());
-    /// ```
-    pub fn validate(&self) -> Result<(), SequenceError> {
-        if !self.0.is_empty() && self.0[0].index == 0 {
-            return Err(SequenceError::ZeroError(0));
-        }
-
-        for i in 0..(self.0.len() - 1) {
-            let pair = &self.0[i..(i + 2)];
-            let ok_index = pair[0].index;
-            let maybe_index = pair[1].index;
-            match ok_index.cmp(&maybe_index) {
-                Ordering::Less => continue,
-                Ordering::Equal => {
-                    return Err(SequenceError::RepeatError {
-                        last_ok_position: i,
-                        error_position: i + 1,
-                        duplicate_index: ok_index,
-                    });
-                }
-                Ordering::Greater => {
-                    return Err(SequenceError::OutOfOrderError {
-                        last_ok_index: ok_index,
-                        out_of_order_index: maybe_index,
-                        out_of_order_position: i + 1,
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Enum of all the possible sections in a `.wif` document (excluding private sections)
@@ -547,34 +343,63 @@ pub enum WifSection {
     WeftSymbols,
 }
 
+impl WifSection {
+    fn index_map_key(&self) -> String {
+        self.to_string().to_lowercase()
+    }
+    fn get_data<'a>(
+        &self,
+        map: &'a IndexMap<String, IndexMap<String, Option<String>>>,
+    ) -> Option<&'a IndexMap<String, Option<String>>> {
+        map.get(&self.index_map_key())
+    }
+
+    fn parse<T: WifParseable>(
+        &self,
+        map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
+        error_map: &mut HashMap<Self, ParseError>,
+    ) -> Option<T> {
+        let data = self.get_data(map)?;
+        let section = T::from_index_map(data);
+        match section {
+            Ok(section) => {
+                map.shift_remove_entry(&self.index_map_key());
+                Some(section)
+            }
+            Err(e) => {
+                error_map.insert(self.clone(), e);
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use data::WifValue;
     use std::str::FromStr;
 
     #[test]
-    fn test_parse_vec() {
-        assert_eq!(Vec::parse("1,4,6,8").unwrap(), vec![1, 4, 6, 8]);
-        assert_eq!(Vec::parse("1 ,4 ,6, 8    ").unwrap(), vec![1, 4, 6, 8]);
-        assert_eq!(Vec::parse("1,4,6,8,a").unwrap_err(), "list of shafts");
-        assert_eq!(Vec::parse("asdlf").unwrap_err(), "list of shafts");
-        assert_eq!(Vec::parse("-1").unwrap_err(), "list of shafts");
-    }
-
-    #[test]
-    fn test_parse_color() {
-        assert_eq!(WifColor::parse("1,0,5").unwrap(), WifColor(1, 0, 5));
-        assert_eq!(WifColor::parse("1,0,5,7").unwrap_err(), "color triple");
-        assert_eq!(WifColor::parse("1   ,0,5    ").unwrap(), WifColor(1, 0, 5));
-        assert_eq!(WifColor::parse("1,").unwrap_err(), "color triple");
-    }
-
-    #[test]
     fn test_parse_u32() {
-        assert_eq!(u32::parse("1").unwrap(), 1);
-        assert_eq!(u32::parse("  1   ").unwrap(), 1);
-        assert_eq!(u32::parse("-1").unwrap_err(), "non-negative integer");
-        assert_eq!(u32::parse("a").unwrap_err(), "non-negative integer");
+        assert_eq!(u32::parse("1", "").unwrap(), 1);
+        assert_eq!(u32::parse("  1   ", "").unwrap(), 1);
+        assert_eq!(
+            u32::parse("-1", "").unwrap_err(),
+            ParseError::BadValueType {
+                key: String::from(""),
+                value: String::from("-1"),
+                expected_type: String::from("non-negative integer")
+            }
+        );
+        assert_eq!(
+            u32::parse("a", "").unwrap_err(),
+            ParseError::BadValueType {
+                key: String::from(""),
+                value: String::from("a"),
+                expected_type: String::from("non-negative integer")
+            }
+        );
     }
 
     #[test]
