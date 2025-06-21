@@ -124,10 +124,10 @@ impl Wif {
         inner.shift_remove_entry(&WifSection::Contents.index_map_key());
 
         // Add parsed sections
-        WifSection::Threading.push_and_mark(ini_map, &self.threading);
-        WifSection::Treadling.push_and_mark(ini_map, &self.treadling);
-        WifSection::LiftPlan.push_and_mark(ini_map, &self.lift_plan);
-        WifSection::TieUp.push_and_mark(ini_map, &self.tie_up);
+        WifSection::Threading.push_and_mark(ini_map, self.threading());
+        WifSection::Treadling.push_and_mark(ini_map, self.treadling());
+        WifSection::LiftPlan.push_and_mark(ini_map, self.lift_plan());
+        WifSection::TieUp.push_and_mark(ini_map, self.tie_up());
         if let Some(palette) = self.color_palette() {
             palette.push_and_mark(ini_map);
         }
@@ -163,7 +163,7 @@ impl Wif {
     pub fn single_threading(&self) -> Result<Option<WifSequence<u32>>, usize> {
         self.threading
             .as_ref()
-            .map(|s| s.to_single_sequence())
+            .map(WifSequence::to_single_sequence)
             .transpose()
     }
 
@@ -189,30 +189,29 @@ impl Wif {
 
     /// Returns list of all sections present in the original `.wif`
     pub fn contents(&self) -> HashSet<WifSection> {
-        use WifSection::*;
         let mut contents = HashSet::new();
         if self.treadling.is_some() {
-            contents.insert(Treadling);
+            contents.insert(WifSection::Treadling);
         }
         if self.threading.is_some() {
-            contents.insert(Threading);
+            contents.insert(WifSection::Threading);
         }
         if self.tie_up.is_some() {
-            contents.insert(TieUp);
+            contents.insert(WifSection::TieUp);
         }
         if self.lift_plan.is_some() {
-            contents.insert(LiftPlan);
+            contents.insert(WifSection::LiftPlan);
         }
         if self.color_palette.as_ref().map(|p| p.colors()).is_some() {
-            contents.insert(ColorTable);
+            contents.insert(WifSection::ColorTable);
         }
         if self
             .color_palette
             .as_ref()
-            .map(|p| p.color_range())
+            .map(ColorPalette::color_range)
             .is_some()
         {
-            contents.insert(ColorPalette);
+            contents.insert(WifSection::ColorPalette);
         }
 
         WifSection::iter().for_each(|sec| {
@@ -237,6 +236,7 @@ impl Wif {
     }
 
     /// Returns whether the given section can be retrieved via a specialized method or via [get_section](Self::get_section)
+    #[must_use]
     pub fn implemented(section: &WifSection) -> bool {
         matches!(
             section,
@@ -275,7 +275,7 @@ pub enum ParseError {
     },
 }
 
-/// Validation errors for [WifSequence]
+/// Validation errors for [`WifSequence`]
 #[derive(Error, Debug, PartialEq)]
 pub enum SequenceError {
     /// An entry with an index of 0 was found in the sequence
@@ -426,7 +426,7 @@ impl WifSection {
     fn push_and_mark<T: WifParseable>(
         &self,
         map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
-        section: &Option<T>,
+        section: Option<&T>,
     ) {
         if let Some(section) = section.as_ref() {
             map.insert(self.to_string(), section.to_index_map());

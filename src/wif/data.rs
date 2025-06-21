@@ -19,6 +19,7 @@ pub trait WifValue {
         Self: Sized;
 
     /// Construct a parse error
+    #[must_use]
     fn type_error(string_value: &str, key_for_err: &str) -> ParseError {
         ParseError::BadValueType {
             value: string_value.to_owned(),
@@ -48,7 +49,8 @@ pub struct ColorPalette {
 }
 
 impl ColorPalette {
-    /// Constructs a new [ColorPalette]. If both arguments are [None], returns [None]
+    /// Constructs a new [`ColorPalette`]. If both arguments are [None], returns [None]
+    #[must_use]
     pub fn maybe_build(
         color_range: Option<ColorMetadata>,
         colors: Option<WifSequence<WifColor>>,
@@ -64,19 +66,21 @@ impl ColorPalette {
     }
 
     /// The color range of entries in the palette. May be 0-255, but some popular programs also use 0-999
+    #[must_use]
     pub fn color_range(&self) -> Option<ColorMetadata> {
         self.color_range
     }
 
     /// The colors in the palette
+    #[must_use]
     pub fn colors(&self) -> Option<&WifSequence<WifColor>> {
         self.colors.as_ref()
     }
 
     /// Serialize into 2 sections of the wif
     pub fn push_and_mark(&self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
-        WifSection::ColorPalette.push_and_mark(map, &self.color_range);
-        WifSection::ColorTable.push_and_mark(map, &self.colors);
+        WifSection::ColorPalette.push_and_mark(map, self.color_range.as_ref());
+        WifSection::ColorTable.push_and_mark(map, self.colors());
         if let Some(colors) = self.colors() {
             map.entry(WifSection::ColorPalette.to_string())
                 .or_default()
@@ -86,7 +90,7 @@ impl ColorPalette {
 }
 
 /// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
-/// The actual range is specified in [ColorPalette]
+/// The actual range is specified in [`ColorPalette`]
 #[derive(Clone, PartialEq, Debug)]
 pub struct WifColor(pub u32, pub u32, pub u32);
 

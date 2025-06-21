@@ -1,4 +1,6 @@
 #![deny(missing_docs)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
 
 //! # wif-weave
 //!
