@@ -1,7 +1,8 @@
-//! Modules for handling the data types within a wif file
+//! Module for handling the data types within a wif file
 
+use crate::WifSection;
 use crate::wif::{ParseError, SequenceError};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, indexmap};
 use std::cmp::Ordering;
 use std::num::ParseIntError;
 
@@ -33,6 +34,9 @@ pub trait WifValue {
             .collect::<Result<Vec<u32>, ParseIntError>>()
             .map_err(|_| Self::type_error(string_value, key_for_err))
     }
+
+    /// Serialize into a string
+    fn to_wif_string(&self) -> String;
 }
 
 /// Color palette in a `.wif`. Other sections may reference colors in this palette by index
@@ -67,6 +71,17 @@ impl ColorPalette {
     pub fn colors(&self) -> Option<&WifSequence<WifColor>> {
         self.colors.as_ref()
     }
+
+    /// Serialize into 2 sections of the wif
+    pub fn push_and_mark(&self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
+        WifSection::ColorPalette.push_and_mark(map, &self.color_range);
+        WifSection::ColorTable.push_and_mark(map, &self.colors);
+        if let Some(colors) = self.colors() {
+            map.entry(WifSection::ColorPalette.to_string())
+                .or_default()
+                .insert(String::from("Entries"), Some(format!("{}", colors.0.len())));
+        }
+    }
 }
 
 /// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
@@ -88,6 +103,10 @@ impl WifValue for WifColor {
             _ => Err(Self::type_error(string_value, key_for_err)),
         }
     }
+
+    fn to_wif_string(&self) -> String {
+        format!("{0},{1},{2}", self.0, self.1, self.2)
+    }
 }
 
 impl WifValue for u32 {
@@ -102,6 +121,10 @@ impl WifValue for u32 {
             .parse::<u32>()
             .map_err(|_| Self::type_error(string_value, key_for_err))
     }
+
+    fn to_wif_string(&self) -> String {
+        self.to_string()
+    }
 }
 
 impl WifValue for Vec<u32> {
@@ -111,6 +134,13 @@ impl WifValue for Vec<u32> {
     }
     fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError> {
         Self::parse_arr(string_value, key_for_err)
+    }
+
+    fn to_wif_string(&self) -> String {
+        self.iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<String>>()
+            .join(",")
     }
 }
 
@@ -171,6 +201,9 @@ pub trait WifParseable {
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError>
     where
         Self: Sized;
+
+    /// Serialize into an index map
+    fn to_index_map(&self) -> IndexMap<String, Option<String>>;
 }
 
 /// The color metadata in the `COLOR PALETTE` section of a wif. We only care about the range for the rgb values.
@@ -191,6 +224,10 @@ impl WifValue for ColorMetadata {
             _ => Err(Self::type_error(string_value, key_for_err)),
         }
     }
+
+    fn to_wif_string(&self) -> String {
+        format!("{0},{1}", self.0, self.1)
+    }
 }
 
 impl WifParseable for ColorMetadata {
@@ -202,6 +239,12 @@ impl WifParseable for ColorMetadata {
         };
 
         Self::parse(value, "range")
+    }
+
+    fn to_index_map(&self) -> IndexMap<String, Option<String>> {
+        indexmap! {
+            String::from("Range") => Some(self.to_wif_string())
+        }
     }
 }
 
@@ -243,6 +286,15 @@ impl<T: Clone + WifValue + Default> WifParseable for WifSequence<T> {
                 })
                 .collect::<Result<Vec<SequenceEntry<T>>, ParseError>>()?,
         ))
+    }
+
+    fn to_index_map(&self) -> IndexMap<String, Option<String>> {
+        let mut map = IndexMap::new();
+        self.0.iter().for_each(|e| {
+            map.insert(e.index.to_string(), Some(e.value.to_wif_string()));
+        });
+
+        map
     }
 }
 

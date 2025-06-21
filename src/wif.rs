@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
+use std::str::FromStr;
 use strum::{Display, EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 use thiserror::Error;
 
@@ -63,14 +64,14 @@ impl Wif {
 
         (
             Wif {
-                treadling: WifSection::Treadling.parse(&mut map, &mut errors),
-                threading: WifSection::Threading.parse(&mut map, &mut errors),
-                lift_plan: WifSection::LiftPlan.parse(&mut map, &mut errors),
+                treadling: WifSection::Treadling.parse_and_pop(&mut map, &mut errors),
+                threading: WifSection::Threading.parse_and_pop(&mut map, &mut errors),
+                lift_plan: WifSection::LiftPlan.parse_and_pop(&mut map, &mut errors),
                 color_palette: ColorPalette::maybe_build(
-                    WifSection::ColorPalette.parse(&mut map, &mut errors),
-                    WifSection::ColorTable.parse(&mut map, &mut errors),
+                    WifSection::ColorPalette.parse_and_pop(&mut map, &mut errors),
+                    WifSection::ColorTable.parse_and_pop(&mut map, &mut errors),
                 ),
-                tie_up: WifSection::TieUp.parse(&mut map, &mut errors),
+                tie_up: WifSection::TieUp.parse_and_pop(&mut map, &mut errors),
                 inner_map: map,
             },
             errors,
@@ -94,7 +95,51 @@ impl Wif {
     }
 
     fn to_ini(&self) -> Ini {
-        todo!();
+        let mut ini = Ini::new_cs();
+        let ini_map = ini.get_mut_map();
+        let mut inner = self.inner_map.clone();
+
+        // Populate header
+        let mut header = inner
+            .shift_remove_entry(&WifSection::Header.to_string())
+            .map(|e| e.1)
+            .unwrap_or_default();
+        header
+            .entry(String::from("Version"))
+            .or_insert(Some(WIF_VERSION.to_owned()));
+        header
+            .entry(String::from("Date"))
+            .or_insert(Some(WIF_DATE.to_owned()));
+        header
+            .entry(String::from("Developers"))
+            .or_insert(Some(WIF_DEVELOPERS.to_owned()));
+        header
+            .entry(String::from("Source Program"))
+            .or_insert(Some(String::from("wif-weave")));
+        ini_map.insert(WifSection::Header.to_string(), header);
+
+        // Create contents
+        ini_map.insert(WifSection::Contents.to_string(), IndexMap::new());
+        inner.shift_remove_entry(&WifSection::Contents.index_map_key());
+
+        // Add parsed sections
+        WifSection::Threading.push_and_mark(ini_map, &self.threading);
+        WifSection::Treadling.push_and_mark(ini_map, &self.treadling);
+        WifSection::LiftPlan.push_and_mark(ini_map, &self.lift_plan);
+        WifSection::TieUp.push_and_mark(ini_map, &self.tie_up);
+        if let Some(palette) = self.color_palette() {
+            palette.push_and_mark(ini_map);
+        }
+
+        // insert other sections
+        for (key, section) in inner {
+            // only insert valid sections
+            if let Ok(wif_section) = WifSection::from_str(key.to_uppercase().as_str()) {
+                ini_map.insert(wif_section.to_string(), section);
+            }
+        }
+
+        ini
     }
 
     /// Write to a `.wif` file
@@ -358,7 +403,7 @@ impl WifSection {
         map.get(&self.index_map_key())
     }
 
-    fn parse<T: WifParseable>(
+    fn parse_and_pop<T: WifParseable>(
         &self,
         map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
         error_map: &mut HashMap<Self, ParseError>,
@@ -375,6 +420,23 @@ impl WifSection {
                 None
             }
         }
+    }
+
+    fn push_and_mark<T: WifParseable>(
+        &self,
+        map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
+        section: &Option<T>,
+    ) {
+        if let Some(section) = section.as_ref() {
+            map.insert(WifSection::Threading.to_string(), section.to_index_map());
+            WifSection::Threading.mark_present(map);
+        }
+    }
+
+    fn mark_present(&self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
+        map.entry(Self::Contents.to_string())
+            .or_default()
+            .insert(self.to_string(), Some(String::from("1")));
     }
 }
 
