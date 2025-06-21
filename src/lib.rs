@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+
 //! # wif-weave
 //!
 //! `wif-weave` is a collection of utilities for parsing `.wif` weaving files.
@@ -6,9 +8,11 @@
 //!
 //! ### `async`
 //!
+//! Enable this for async reads and writes, using the async functionality from configparser, which uses tokio
 //!
-//!
-
-// TODO
 
 pub mod wif;
+#[doc(inline)]
+pub use wif::Wif;
+#[doc(inline)]
+pub use wif::WifSection;
