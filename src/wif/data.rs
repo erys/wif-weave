@@ -5,7 +5,6 @@ use crate::wif::{ParseError, SequenceError};
 use indexmap::{IndexMap, indexmap};
 use std::cmp::Ordering;
 use std::num::ParseIntError;
-use std::slice::Iter;
 
 /// Trait for values in `.wif` that are parseable from a string
 pub trait WifValue {
@@ -13,7 +12,10 @@ pub trait WifValue {
     const EXPECTED_TYPE: &'static str;
     /// Whether this value should be treated as there or not
     fn present(&self) -> bool;
-    /// Parse from the string value in the `.wif`. Error is the expected type
+    /// Parse from the string value in the `.wif`.
+    ///
+    /// # Errors
+    /// When the value can't be parsed into the expected type
     fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError>
     where
         Self: Sized;
@@ -29,6 +31,9 @@ pub trait WifValue {
     }
 
     /// Parse an array from the value
+    ///
+    /// # Errors
+    /// If the values aren't a comma separated list of positive integers
     fn parse_arr(string_value: &str, key_for_err: &str) -> Result<Vec<u32>, ParseError> {
         string_value
             .split(',')
@@ -143,7 +148,7 @@ impl WifValue for Vec<u32> {
 
     fn to_wif_string(&self) -> String {
         self.iter()
-            .map(|i| i.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<String>>()
             .join(",")
     }
@@ -169,14 +174,14 @@ impl<T: WifValue + Clone> SequenceEntry<T> {
 
     /// Returns the value of the entry.
     ///
-    /// 0 indicates no entry at this index. To get [None] use [value_option][Self::value_option]
+    /// 0 indicates no entry at this index. To get [`None`] use [`value_option`][Self::value_option]
     pub fn value(&self) -> &T {
         &self.value
     }
 
     /// Returns value of the entry as an [Option]
     ///
-    /// Similar to [value][Self::value] but returns [None] instead of `0`
+    /// Similar to [`value`][Self::value] but returns [`None`] instead of `0`
     pub fn value_option(&self) -> Option<&T> {
         if self.value.present() {
             Some(&self.value)
@@ -203,6 +208,9 @@ impl SequenceEntry<Vec<u32>> {
 /// For data types that can be extracted from a wif
 pub trait WifParseable {
     /// Parse the data from a section of the wif file
+    ///
+    /// # Errors
+    /// If the keys or values aren't the expected types
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError>
     where
         Self: Sized;
@@ -255,24 +263,27 @@ impl WifParseable for ColorMetadata {
 
 /// # Represents the sequence of numbers that compose a threading or treadling
 ///
-/// [SequenceEntry]'s in the vector should be in order by in order by index, with no duplicates or
+/// [`SequenceEntry`]'s in the vector should be in order by in order by index, with no duplicates or
 /// missing entries, but this is not guaranteed when constructed from a `.wif` file.
 #[derive(PartialEq, Debug, Clone)]
 pub struct WifSequence<T: Clone + WifValue>(pub Vec<SequenceEntry<T>>);
 
 impl WifSequence<Vec<u32>> {
     /// Converts a sequence of arrays to a sequence of numbers. Err value is the first index with multiple numbers
+    ///
+    /// # Errors
+    /// The error is the first index with multiple values
     pub fn to_single_sequence(&self) -> Result<WifSequence<u32>, usize> {
         Ok(WifSequence(
             self.0
                 .iter()
-                .map(|v| v.to_single())
+                .map(SequenceEntry::to_single)
                 .collect::<Result<Vec<SequenceEntry<u32>>, usize>>()?,
         ))
     }
 }
 
-/// Iterator for a [WifSequence], returns a default when indices are skipped, returns clones of entries
+/// Iterator for a [`WifSequence`], returns a default when indices are skipped, returns clones of entries
 pub struct SequenceIterDefault<'a, T: Clone + WifValue + Default> {
     /// index of iterator
     index: usize,
@@ -281,7 +292,7 @@ pub struct SequenceIterDefault<'a, T: Clone + WifValue + Default> {
     sequence: &'a WifSequence<T>,
 }
 
-impl<'a, T: Clone + WifValue + Default> Iterator for SequenceIterDefault<'a, T> {
+impl<T: Clone + WifValue + Default> Iterator for SequenceIterDefault<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -299,7 +310,7 @@ impl<'a, T: Clone + WifValue + Default> Iterator for SequenceIterDefault<'a, T> 
     }
 }
 
-/// Iterator for a [WifSequence], returns items as Option, returning `Some(None)` on skipped
+/// Iterator for a [`WifSequence`], returns items as Option, returning `Some(None)` on skipped
 /// indices, and `Some(Some(T))` on present ones
 pub struct SequenceIterOption<'a, T: Clone + WifValue> {
     /// index of iterator
@@ -327,13 +338,6 @@ impl<'a, T: Clone + WifValue> Iterator for SequenceIterOption<'a, T> {
     }
 }
 
-impl<T: Clone + WifValue> WifSequence<T> {
-    /// Returns iterator for WifSequence
-    pub fn iter(&self) -> Iter<'_, SequenceEntry<T>> {
-        self.0.iter()
-    }
-}
-
 impl<T: Clone + WifValue> IntoIterator for WifSequence<T> {
     type Item = SequenceEntry<T>;
     type IntoIter = std::vec::IntoIter<SequenceEntry<T>>;
@@ -344,7 +348,7 @@ impl<T: Clone + WifValue> IntoIterator for WifSequence<T> {
 }
 
 impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
-    /// Constructs a sequence from an [IndexMap]. Returns a parse error on invalid keys or values
+    /// Constructs a sequence from an [`IndexMap`]. Returns a parse error on invalid keys or values
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError> {
         Ok(WifSequence(
             conf_data
@@ -375,7 +379,7 @@ impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
 }
 
 impl<T: Clone + WifValue + Default> WifSequence<T> {
-    /// Same as [from_array](Self::from_array) but it accepts [None] in place of 0 values
+    /// Same as [`from_array`](Self::from_array) but it accepts [None] in place of 0 values
     pub fn from_option_array(sequence: &[Option<T>]) -> Self {
         WifSequence(
             sequence
@@ -393,6 +397,7 @@ impl<T: Clone + WifValue + Default> WifSequence<T> {
     }
 
     /// Returns an owned iterator that returns default values for skipped indices
+    #[must_use]
     pub fn default_iter(&self) -> SequenceIterDefault<T> {
         SequenceIterDefault {
             index: 0,
@@ -403,7 +408,7 @@ impl<T: Clone + WifValue + Default> WifSequence<T> {
 }
 
 impl<T: Clone + WifValue> WifSequence<T> {
-    /// Constructs a new [WifSequence] from an array. This sequence will always be valid
+    /// Constructs a new [`WifSequence`] from an array. This sequence will always be valid
     pub fn from_array(sequence: &[T]) -> Self {
         WifSequence(
             sequence
@@ -418,6 +423,7 @@ impl<T: Clone + WifValue> WifSequence<T> {
     }
 
     /// Creates an iterator that returns the values in the sequence, wrapped in an option, with `None` for missing values
+    #[must_use]
     pub fn option_iter(&self) -> SequenceIterOption<T> {
         SequenceIterOption {
             index: 0,
@@ -428,6 +434,10 @@ impl<T: Clone + WifValue> WifSequence<T> {
 
     /// Validates indices within the sequence to ensure that they are non-zero and strictly increasing
     ///
+    /// # Errors
+    /// Returns an error if indices are out of order.
+    ///
+    /// # Examples
     /// ```
     /// # use indexmap::indexmap;
     /// # use wif_weave::wif::{SequenceError};
@@ -448,7 +458,7 @@ impl<T: Clone + WifValue> WifSequence<T> {
             let ok_index = pair[0].index;
             let maybe_index = pair[1].index;
             match ok_index.cmp(&maybe_index) {
-                Ordering::Less => continue,
+                Ordering::Less => {}
                 Ordering::Equal => {
                     return Err(SequenceError::RepeatError {
                         last_ok_position: i,
@@ -479,7 +489,7 @@ mod tests {
         assert_eq!(
             Vec::parse("1,4,6,8,a", "").unwrap_err(),
             ParseError::BadValueType {
-                key: String::from(""),
+                key: String::new(),
                 value: String::from("1,4,6,8,a"),
                 expected_type: String::from("list of shafts")
             }
@@ -487,7 +497,7 @@ mod tests {
         assert_eq!(
             Vec::parse("asdlf", "").unwrap_err(),
             ParseError::BadValueType {
-                key: String::from(""),
+                key: String::new(),
                 value: String::from("asdlf"),
                 expected_type: String::from("list of shafts")
             }
@@ -495,7 +505,7 @@ mod tests {
         assert_eq!(
             Vec::parse("-1", "").unwrap_err(),
             ParseError::BadValueType {
-                key: String::from(""),
+                key: String::new(),
                 value: String::from("-1"),
                 expected_type: String::from("list of shafts")
             }
@@ -509,7 +519,7 @@ mod tests {
             WifColor::parse("1,0,5,7", "").unwrap_err(),
             ParseError::BadValueType {
                 value: String::from("1,0,5,7"),
-                key: String::from(""),
+                key: String::new(),
                 expected_type: String::from("color triple")
             }
         );
@@ -520,7 +530,7 @@ mod tests {
         assert_eq!(
             WifColor::parse("1,", "").unwrap_err(),
             ParseError::BadValueType {
-                key: String::from(""),
+                key: String::new(),
                 value: String::from("1,"),
                 expected_type: String::from("color triple")
             }

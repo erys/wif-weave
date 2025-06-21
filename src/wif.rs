@@ -80,6 +80,13 @@ impl Wif {
     }
 
     /// Construct a [Wif] from a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there's an issue reading the file or if the contents don't match the INI spec
+    ///
+    /// Errors with the Wif specification will be collected into the second value of the return, but the other
+    /// sections will still be parsed.
     pub fn load<T: AsRef<Path>>(
         path: T,
     ) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
@@ -89,6 +96,10 @@ impl Wif {
     }
 
     /// Construct a [Wif] from the string contents of a `.wif`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the text doesn't match the INI format
     pub fn read(text: String) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
         let mut ini = Ini::new();
         let map = ini.read(text)?;
@@ -144,22 +155,29 @@ impl Wif {
     }
 
     /// Write to a `.wif` file
+    ///
+    /// # Errors
+    /// Returns an error if there's an issue writing to the file
     pub fn write<T: AsRef<Path>>(&self, path: T) -> Result<(), io::Error> {
         self.to_ini().pretty_write(path, &Self::write_options())
     }
 
     /// Write to a string in the `.wif` format
+    #[must_use]
     pub fn writes(&self) -> String {
         self.to_ini().pretty_writes(&Self::write_options())
     }
 
     /// Returns the threading sequence if present
+    #[must_use]
     pub fn threading(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.threading.as_ref()
     }
 
     /// If all threads only go through one heddle (standard), returns the threading.
-    /// Err value is the first index with multiple heddles.
+    ///
+    /// # Errors
+    /// Returns the first index with multiple heddles
     pub fn single_threading(&self) -> Result<Option<WifSequence<u32>>, usize> {
         self.threading
             .as_ref()
@@ -168,21 +186,25 @@ impl Wif {
     }
 
     /// Returns the treadling sequence if present
+    #[must_use]
     pub fn treadling(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.treadling.as_ref()
     }
 
     /// Returns the lift plan if present
+    #[must_use]
     pub fn lift_plan(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.lift_plan.as_ref()
     }
 
     /// Returns the tie-up if present
+    #[must_use]
     pub fn tie_up(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.tie_up.as_ref()
     }
 
-    /// Returns the color palette if present. Corresponds to [ColorPalette][WifSection::ColorPalette] and [ColorTable][WifSection::ColorTable]
+    /// Returns the color palette if present. Corresponds to [`ColorPalette`][WifSection::ColorPalette] and [`ColorTable`][WifSection::ColorTable]
+    #[must_use]
     pub fn color_palette(&self) -> Option<&ColorPalette> {
         self.color_palette.as_ref()
     }
@@ -224,6 +246,10 @@ impl Wif {
     }
 
     /// Get the raw data for a section that is not yet parsed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the section has a specific method to retrieve it.
     pub fn get_section(
         &self,
         section: &WifSection,
@@ -235,7 +261,7 @@ impl Wif {
         }
     }
 
-    /// Returns whether the given section can be retrieved via a specialized method or via [get_section](Self::get_section)
+    /// Returns whether the given section can be retrieved via a specialized method or via [`get_section`](Self::get_section)
     #[must_use]
     pub fn implemented(section: &WifSection) -> bool {
         matches!(
@@ -454,7 +480,7 @@ mod tests {
         assert_eq!(
             u32::parse("-1", "").unwrap_err(),
             ParseError::BadValueType {
-                key: String::from(""),
+                key: String::new(),
                 value: String::from("-1"),
                 expected_type: String::from("non-negative integer")
             }
@@ -462,7 +488,7 @@ mod tests {
         assert_eq!(
             u32::parse("a", "").unwrap_err(),
             ParseError::BadValueType {
-                key: String::from(""),
+                key: String::new(),
                 value: String::from("a"),
                 expected_type: String::from("non-negative integer")
             }
