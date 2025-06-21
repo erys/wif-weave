@@ -3,10 +3,11 @@
 use configparser::ini::{Ini, WriteOptions};
 use indexmap::IndexMap;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::io;
 use std::num::ParseIntError;
 use std::path::Path;
-use strum::{Display, EnumIter, EnumString, IntoStaticStr};
+use strum::{Display, EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 use thiserror::Error;
 
 /// Default value for the developers field in the WIF header
@@ -20,6 +21,11 @@ pub const WIF_VERSION: &str = "1.1";
 #[derive(Debug, Clone)]
 pub struct Wif {
     inner_map: IndexMap<String, IndexMap<String, Option<String>>>,
+    treadling: Option<WifSequence<Vec<u32>>>,
+    threading: Option<WifSequence<Vec<u32>>>,
+    lift_plan: Option<WifSequence<Vec<u32>>>,
+    color_palette: Option<ColorPalette>,
+    tie_up: Option<WifSequence<Vec<u32>>>,
 }
 
 #[cfg(feature = "async")]
@@ -79,38 +85,96 @@ impl Wif {
     }
 
     /// Returns the threading sequence if present
-    pub fn threading(&self) -> Option<&WifSequence<u32>> {
+    pub fn threading(&self) -> &Option<WifSequence<Vec<u32>>> {
+        &self.threading
+    }
+
+    /// If all threads only go through one heddle (standard), returns the threading
+    pub fn single_threading(&self) -> Result<Option<WifSequence<u32>>, String> {
         todo!()
     }
 
     /// Returns the treadling sequence if present
-    pub fn treadling(&self) -> Option<&WifSequence<u32>> {
-        todo!()
+    pub fn treadling(&self) -> &Option<WifSequence<Vec<u32>>> {
+        &self.treadling
     }
 
     /// Returns the lift plan if present
-    pub fn lift_plan(&self) -> Option<&WifSequence<Vec<u32>>> {
-        todo!()
+    pub fn lift_plan(&self) -> &Option<WifSequence<Vec<u32>>> {
+        &self.lift_plan
     }
 
     /// Returns the tie-up if present
-    pub fn tie_up(&self) -> Option<&WifSequence<Vec<u32>>> {
-        todo!()
+    pub fn tie_up(&self) -> &Option<WifSequence<Vec<u32>>> {
+        &self.tie_up
     }
 
-    /// Returns the color palette if present
-    pub fn color_palette(&self) -> Option<&ColorPalette> {
-        todo!()
+    /// Returns the color palette if present. Corresponds to [ColorPalette][WifSection::ColorPalette] and [ColorTable][WifSection::ColorTable]
+    pub fn color_palette(&self) -> &Option<ColorPalette> {
+        &self.color_palette
     }
 
     /// Returns list of all sections present in the original `.wif`
-    pub fn contents(&self) -> Vec<String> {
-        todo!()
+    pub fn contents(&self) -> HashSet<WifSection> {
+        use WifSection::*;
+        let mut contents = HashSet::new();
+        if self.treadling.is_some() {
+            contents.insert(Treadling);
+        }
+        if self.threading.is_some() {
+            contents.insert(Threading);
+        }
+        if self.tie_up.is_some() {
+            contents.insert(TieUp);
+        }
+        if self.lift_plan.is_some() {
+            contents.insert(LiftPlan);
+        }
+        if self.color_palette.as_ref().map(|p| &p.colors).is_some() {
+            contents.insert(ColorTable);
+        }
+        if self
+            .color_palette
+            .as_ref()
+            .map(|p| &p.color_range)
+            .is_some()
+        {
+            contents.insert(ColorPalette);
+        }
+
+        WifSection::iter().for_each(|sec| {
+            if self.inner_map.contains_key(&sec.to_string().to_lowercase()) {
+                contents.insert(sec);
+            }
+        });
+
+        contents
     }
 
-    /// get the raw data for a section that is not yet parsed
-    pub fn get_section(&self, section: &WifSection) -> Option<&IndexMap<String, Option<String>>> {
-        self.inner_map.get(&section.to_string().to_lowercase())
+    /// Get the raw data for a section that is not yet parsed.
+    pub fn get_section(
+        &self,
+        section: &WifSection,
+    ) -> Result<Option<&IndexMap<String, Option<String>>>, String> {
+        if Self::implemented(section) {
+            Err(String::from("Must be retrieved with specific method"))
+        } else {
+            Ok(self.inner_map.get(&section.to_string().to_lowercase()))
+        }
+    }
+
+    /// Returns whether the given section can be retrieved via a specialized method or via [get_section](Self::get_section)
+    pub fn implemented(section: &WifSection) -> bool {
+        matches!(
+            section,
+            WifSection::Contents
+                | WifSection::ColorPalette
+                | WifSection::ColorTable
+                | WifSection::Threading
+                | WifSection::Treadling
+                | WifSection::TieUp
+                | WifSection::LiftPlan
+        )
     }
 }
 
@@ -401,7 +465,7 @@ impl<T: Clone + SequenceValue + Default> WifSequence<T> {
 }
 
 /// Enum of all the possible sections in a `.wif` document (excluding private sections)
-#[derive(EnumString, Debug, PartialEq, Clone, EnumIter, IntoStaticStr, Display)]
+#[derive(EnumString, Debug, PartialEq, Eq, Hash, Clone, EnumIter, IntoStaticStr, Display)]
 #[strum(use_phf, serialize_all = "UPPERCASE")]
 pub enum WifSection {
     /// `WIF` section
