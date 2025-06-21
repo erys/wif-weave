@@ -112,9 +112,13 @@ impl Wif {
         &self.threading
     }
 
-    /// If all threads only go through one heddle (standard), returns the threading
-    pub fn single_threading(&self) -> Result<Option<WifSequence<u32>>, String> {
-        todo!()
+    /// If all threads only go through one heddle (standard), returns the threading.
+    /// Err value is the first index with multiple heddles.
+    pub fn single_threading(&self) -> Result<Option<WifSequence<u32>>, usize> {
+        self.threading
+            .as_ref()
+            .map(|s| s.to_single_sequence())
+            .transpose()
     }
 
     /// Returns the treadling sequence if present

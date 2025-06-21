@@ -83,10 +83,9 @@ impl WifValue for WifColor {
 
     fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError> {
         let values = Self::parse_arr(string_value, key_for_err)?;
-        if values.len() != 3 {
-            Err(Self::type_error(string_value, key_for_err))
-        } else {
-            Ok(WifColor(values[0], values[1], values[2]))
+        match values.len() {
+            3 => Ok(WifColor(values[0], values[1], values[2])),
+            _ => Err(Self::type_error(string_value, key_for_err)),
         }
     }
 }
@@ -152,6 +151,20 @@ impl<T: WifValue + Clone> SequenceEntry<T> {
     }
 }
 
+impl SequenceEntry<Vec<u32>> {
+    fn to_single(&self) -> Result<SequenceEntry<u32>, usize> {
+        let new_value = match self.value.len() {
+            0 => 0,
+            1 => self.value[0],
+            _ => return Err(self.index),
+        };
+        Ok(SequenceEntry {
+            index: self.index,
+            value: new_value,
+        })
+    }
+}
+
 /// For data types that can be extracted from a wif
 pub trait WifParseable {
     /// Parse the data from a section of the wif file
@@ -173,10 +186,9 @@ impl WifValue for ColorMetadata {
     fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError> {
         let values = Self::parse_arr(string_value, key_for_err)?;
 
-        if values.len() != 2 {
-            Err(Self::type_error(string_value, key_for_err))
-        } else {
-            Ok(ColorMetadata(values[0], values[1]))
+        match values.len() {
+            2 => Ok(ColorMetadata(values[0], values[1])),
+            _ => Err(Self::type_error(string_value, key_for_err)),
         }
     }
 }
@@ -200,6 +212,18 @@ impl WifParseable for ColorMetadata {
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct WifSequence<T: Clone + WifValue>(Vec<SequenceEntry<T>>);
 
+impl WifSequence<Vec<u32>> {
+    /// Converts a sequence of arrays to a sequence of numbers. Err value is the first index with multiple numbers
+    pub fn to_single_sequence(&self) -> Result<WifSequence<u32>, usize> {
+        Ok(WifSequence(
+            self.0
+                .iter()
+                .map(|v| v.to_single())
+                .collect::<Result<Vec<SequenceEntry<u32>>, usize>>()?,
+        ))
+    }
+}
+
 impl<T: Clone + WifValue + Default> WifParseable for WifSequence<T> {
     /// Constructs a sequence from an [IndexMap]. Returns a parse error on invalid keys or values
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError> {
@@ -207,12 +231,12 @@ impl<T: Clone + WifValue + Default> WifParseable for WifSequence<T> {
             conf_data
                 .iter()
                 .map(|(key, value)| {
-                    let value = value
-                        .as_ref()
-                        .ok_or(ParseError::MissingValue(key.clone()))?;
-                    let index = key
-                        .parse::<usize>()
-                        .map_err(|_| ParseError::BadIntegerKey(key.clone()))?;
+                    let Some(value) = value.as_ref() else {
+                        return Err(ParseError::MissingValue(key.clone()));
+                    };
+                    let Ok(index) = key.parse::<usize>() else {
+                        return Err(ParseError::BadIntegerKey(key.clone()));
+                    };
 
                     let value = T::parse(value, key)?;
                     Ok::<SequenceEntry<T>, ParseError>(SequenceEntry { index, value })
