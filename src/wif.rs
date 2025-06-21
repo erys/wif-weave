@@ -19,7 +19,7 @@ pub const WIF_DATE: &str = "April 20, 1997";
 pub const WIF_VERSION: &str = "1.1";
 
 /// Representation of the data in a `.wif` file
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Wif {
     inner_map: IndexMap<String, IndexMap<String, Option<String>>>,
     treadling: Option<WifSequence<Vec<u32>>>,
@@ -61,6 +61,7 @@ impl Wif {
         mut map: IndexMap<String, IndexMap<String, Option<String>>>,
     ) -> (Self, HashMap<WifSection, ParseError>) {
         let mut errors = HashMap::new();
+        map.shift_remove_entry(&WifSection::Contents.index_map_key());
 
         (
             Wif {
@@ -153,8 +154,8 @@ impl Wif {
     }
 
     /// Returns the threading sequence if present
-    pub fn threading(&self) -> &Option<WifSequence<Vec<u32>>> {
-        &self.threading
+    pub fn threading(&self) -> Option<&WifSequence<Vec<u32>>> {
+        self.threading.as_ref()
     }
 
     /// If all threads only go through one heddle (standard), returns the threading.
@@ -167,23 +168,23 @@ impl Wif {
     }
 
     /// Returns the treadling sequence if present
-    pub fn treadling(&self) -> &Option<WifSequence<Vec<u32>>> {
-        &self.treadling
+    pub fn treadling(&self) -> Option<&WifSequence<Vec<u32>>> {
+        self.treadling.as_ref()
     }
 
     /// Returns the lift plan if present
-    pub fn lift_plan(&self) -> &Option<WifSequence<Vec<u32>>> {
-        &self.lift_plan
+    pub fn lift_plan(&self) -> Option<&WifSequence<Vec<u32>>> {
+        self.lift_plan.as_ref()
     }
 
     /// Returns the tie-up if present
-    pub fn tie_up(&self) -> &Option<WifSequence<Vec<u32>>> {
-        &self.tie_up
+    pub fn tie_up(&self) -> Option<&WifSequence<Vec<u32>>> {
+        self.tie_up.as_ref()
     }
 
     /// Returns the color palette if present. Corresponds to [ColorPalette][WifSection::ColorPalette] and [ColorTable][WifSection::ColorTable]
-    pub fn color_palette(&self) -> &Option<ColorPalette> {
-        &self.color_palette
+    pub fn color_palette(&self) -> Option<&ColorPalette> {
+        self.color_palette.as_ref()
     }
 
     /// Returns list of all sections present in the original `.wif`
@@ -428,8 +429,8 @@ impl WifSection {
         section: &Option<T>,
     ) {
         if let Some(section) = section.as_ref() {
-            map.insert(WifSection::Threading.to_string(), section.to_index_map());
-            WifSection::Threading.mark_present(map);
+            map.insert(self.to_string(), section.to_index_map());
+            self.mark_present(map);
         }
     }
 

@@ -5,6 +5,7 @@ use crate::wif::{ParseError, SequenceError};
 use indexmap::{IndexMap, indexmap};
 use std::cmp::Ordering;
 use std::num::ParseIntError;
+use std::slice::Iter;
 
 /// Trait for values in `.wif` that are parseable from a string
 pub trait WifValue {
@@ -86,8 +87,8 @@ impl ColorPalette {
 
 /// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
 /// The actual range is specified in [ColorPalette]
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct WifColor(u32, u32, u32);
+#[derive(Clone, PartialEq, Debug)]
+pub struct WifColor(pub u32, pub u32, pub u32);
 
 impl WifValue for WifColor {
     const EXPECTED_TYPE: &'static str = "color triple";
@@ -208,7 +209,7 @@ pub trait WifParseable {
 
 /// The color metadata in the `COLOR PALETTE` section of a wif. We only care about the range for the rgb values.
 #[derive(PartialEq, Debug, Clone, Copy)]
-pub struct ColorMetadata(u32, u32);
+pub struct ColorMetadata(pub u32, pub u32);
 
 impl WifValue for ColorMetadata {
     const EXPECTED_TYPE: &'static str = "color range";
@@ -252,8 +253,8 @@ impl WifParseable for ColorMetadata {
 ///
 /// [SequenceEntry]'s in the vector should be in order by in order by index, with no duplicates or
 /// missing entries, but this is not guaranteed when constructed from a `.wif` file.
-#[derive(PartialEq, Debug, Clone, Default)]
-pub struct WifSequence<T: Clone + WifValue>(Vec<SequenceEntry<T>>);
+#[derive(PartialEq, Debug, Clone)]
+pub struct WifSequence<T: Clone + WifValue>(pub Vec<SequenceEntry<T>>);
 
 impl WifSequence<Vec<u32>> {
     /// Converts a sequence of arrays to a sequence of numbers. Err value is the first index with multiple numbers
@@ -267,7 +268,78 @@ impl WifSequence<Vec<u32>> {
     }
 }
 
-impl<T: Clone + WifValue + Default> WifParseable for WifSequence<T> {
+/// Iterator for a [WifSequence], returns a default when indices are skipped, returns clones of entries
+pub struct SequenceIterDefault<'a, T: Clone + WifValue + Default> {
+    /// index of iterator
+    index: usize,
+    /// index into Vec
+    inner_index: usize,
+    sequence: &'a WifSequence<T>,
+}
+
+impl<'a, T: Clone + WifValue + Default> Iterator for SequenceIterDefault<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index += 1;
+        if self.inner_index >= self.sequence.0.len() {
+            return None;
+        }
+
+        if self.index > self.sequence.0[self.inner_index].index {
+            Some(Default::default())
+        } else {
+            self.inner_index += 1;
+            Some(self.sequence.0[self.inner_index - 1].value.clone())
+        }
+    }
+}
+
+/// Iterator for a [WifSequence], returns items as Option, returning `Some(None)` on skipped
+/// indices, and `Some(Some(T))` on present ones
+pub struct SequenceIterOption<'a, T: Clone + WifValue> {
+    /// index of iterator
+    index: usize,
+    /// index into Vec
+    inner_index: usize,
+    sequence: &'a WifSequence<T>,
+}
+
+impl<'a, T: Clone + WifValue> Iterator for SequenceIterOption<'a, T> {
+    type Item = Option<&'a T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index += 1;
+        if self.inner_index >= self.sequence.0.len() {
+            return None;
+        }
+
+        if self.index > self.sequence.0[self.inner_index].index {
+            Some(None)
+        } else {
+            self.inner_index += 1;
+            Some(Some(&self.sequence.0[self.inner_index - 1].value))
+        }
+    }
+}
+
+impl<T: Clone + WifValue> WifSequence<T> {
+    /// Returns iterator for WifSequence
+    pub fn iter(&self) -> Iter<'_, SequenceEntry<T>> {
+        self.0.iter()
+    }
+}
+
+impl<T: Clone + WifValue> IntoIterator for WifSequence<T> {
+    type Item = SequenceEntry<T>;
+    type IntoIter = std::vec::IntoIter<SequenceEntry<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
     /// Constructs a sequence from an [IndexMap]. Returns a parse error on invalid keys or values
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError> {
         Ok(WifSequence(
@@ -299,20 +371,6 @@ impl<T: Clone + WifValue + Default> WifParseable for WifSequence<T> {
 }
 
 impl<T: Clone + WifValue + Default> WifSequence<T> {
-    /// Constructs a new [WifSequence] from an array. This sequence will always be valid
-    pub fn from_array(sequence: &[T]) -> Self {
-        WifSequence(
-            sequence
-                .iter()
-                .enumerate()
-                .map(|(index, value)| SequenceEntry {
-                    index: index + 1,
-                    value: value.clone(),
-                })
-                .collect(),
-        )
-    }
-
     /// Same as [from_array](Self::from_array) but it accepts [None] in place of 0 values
     pub fn from_option_array(sequence: &[Option<T>]) -> Self {
         WifSequence(
@@ -328,6 +386,40 @@ impl<T: Clone + WifValue + Default> WifSequence<T> {
                 })
                 .collect(),
         )
+    }
+
+    /// Returns an owned iterator that returns default values for skipped indices
+    pub fn default_iter(&self) -> SequenceIterDefault<T> {
+        SequenceIterDefault {
+            index: 0,
+            inner_index: 0,
+            sequence: self,
+        }
+    }
+}
+
+impl<T: Clone + WifValue> WifSequence<T> {
+    /// Constructs a new [WifSequence] from an array. This sequence will always be valid
+    pub fn from_array(sequence: &[T]) -> Self {
+        WifSequence(
+            sequence
+                .iter()
+                .enumerate()
+                .map(|(index, value)| SequenceEntry {
+                    index: index + 1,
+                    value: value.clone(),
+                })
+                .collect(),
+        )
+    }
+
+    /// Creates an iterator that returns the values in the sequence, wrapped in an option, with `None` for missing values
+    pub fn option_iter(&self) -> SequenceIterOption<T> {
+        SequenceIterOption {
+            index: 0,
+            inner_index: 0,
+            sequence: self,
+        }
     }
 
     /// Validates indices within the sequence to ensure that they are non-zero and strictly increasing
