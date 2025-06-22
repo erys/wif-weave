@@ -443,7 +443,7 @@ impl<T: Clone + WifValue> WifSequence<T> {
     /// # use wif_weave::wif::{SequenceError};
     /// use wif_weave::wif::data::{WifParseable, WifSequence};
     /// let map = indexmap! {
-    ///     String::from("0") => Some(String::from("1"))    
+    ///     String::from("0") => Some(String::from("1"))
     /// };
     /// let sequence = WifSequence::<u32>::from_index_map(&map);
     /// assert_eq!(SequenceError::ZeroError(0), sequence.unwrap().validate().unwrap_err());
