@@ -1,9 +1,10 @@
 # wif-weave
+
 [![Build Status](https://github.com/erys/wif-weave/actions/workflows/rust.yml/badge.svg)](https://github.com/erys/wif-weave/actions/workflows/rust.yml)
-[![Crates.io](https://img.shields.io/crates/v/wif-weave?color=black)](https://crates.io/crates/wif-weave)
+[![Crates.io](https://img.shields.io/crates/v/wif-weave)](https://crates.io/crates/wif-weave)
 [![Released API docs](https://docs.rs/wif-weave/badge.svg)](https://docs.rs/wif-weave)
 [![Maintenance](https://img.shields.io/maintenance/yes/2025)](https://github.com/erys/wif-weave)
-
+[![dependency status](https://deps.rs/repo/github/erys/wif-weave/status.svg)](https://deps.rs/repo/github/erys/wif-weave)
 
 `wif-weave` is a parsing utility built on [configparser](https://crates.io/crates/configparser) to parse `.wif`
 files used for representing weaving patterns. The `.wif` specification was originally created in 1996, and has been
