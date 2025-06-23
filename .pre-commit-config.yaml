@@ -17,3 +17,9 @@ repos:
         language: rust
         types: [ rust ]
         pass_filenames: true
+      - id: clippy
+        name: clippy
+        entry: cargo clippy --fix -- -D warnings
+        language: rust
+        types: [ rust ]
+        pass_filenames: false
