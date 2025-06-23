@@ -16,10 +16,10 @@ repos:
         entry: cargo-fmt
         language: rust
         types: [ rust ]
-        pass_filenames: true
+        pass_filenames: false
       - id: clippy
         name: clippy
-        entry: cargo clippy --fix -- -D warnings
+        entry: cargo clippy --all-targets -- -D warnings
         language: rust
         types: [ rust ]
         pass_filenames: false
