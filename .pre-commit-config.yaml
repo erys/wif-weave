@@ -1,5 +1,6 @@
 exclude: '^wifs/.*\.wif$' # don't lint wifs
 default_install_hook_types: [ pre-commit, pre-push ]
+default_stages: [ pre-commit ]
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
