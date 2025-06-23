@@ -9,3 +9,11 @@ repos:
       - id: check-added-large-files
       - id: mixed-line-ending
         args: [ --fix=lf ]
+  - repo: local
+    hooks:
+      - id: rust-fmt
+        name: rust fmt
+        entry: cargo-fmt
+        language: rust
+        types: [ rust ]
+        pass_filenames: true

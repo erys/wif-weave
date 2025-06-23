@@ -18,8 +18,5 @@ thiserror = "2.0.12"
 [features]
 async = ["configparser/async-std"]
 
-[dev-dependencies]
-rusty-hook = "0.11.2"
-
 [package.metadata.docs.rs]
 all-features = true
