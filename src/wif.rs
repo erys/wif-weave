@@ -34,6 +34,8 @@ pub mod data;
 #[cfg(feature = "async")]
 impl Wif {
     /// Asynchronously read a file and parse it into a [Wif]
+    /// # Errors
+    /// Returns an error if file reading or ini parsing fails
     pub async fn load_async<T: AsRef<Path>>(
         path: T,
     ) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
@@ -43,6 +45,9 @@ impl Wif {
     }
 
     /// Asynchronously write to a `.wif` file
+    ///
+    /// # Errors
+    /// returns an [`io::Error`] if file writing fails
     pub async fn write_async<T: AsRef<Path>>(&self, path: T) -> Result<(), io::Error> {
         self.to_ini()
             .pretty_write_async(path, &Self::write_options())
