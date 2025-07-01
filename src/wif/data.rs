@@ -1,10 +1,11 @@
 //! Module for handling the data types within a wif file
 
-use crate::WifSection;
+use crate::Section;
 use crate::wif::{ParseError, SequenceError};
 use indexmap::{IndexMap, indexmap};
 use std::cmp::Ordering;
 use std::num::ParseIntError;
+use std::vec;
 
 /// Trait for values in `.wif` that are parseable from a string
 pub trait WifValue {
@@ -47,7 +48,7 @@ pub trait WifValue {
 }
 
 /// Color palette in a `.wif`. Other sections may reference colors in this palette by index
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ColorPalette {
     color_range: Option<ColorMetadata>,
     colors: Option<WifSequence<WifColor>>,
@@ -72,22 +73,22 @@ impl ColorPalette {
 
     /// The color range of entries in the palette. May be 0-255, but some popular programs also use 0-999
     #[must_use]
-    pub fn color_range(&self) -> Option<ColorMetadata> {
+    pub const fn color_range(&self) -> Option<ColorMetadata> {
         self.color_range
     }
 
     /// The colors in the palette
     #[must_use]
-    pub fn colors(&self) -> Option<&WifSequence<WifColor>> {
+    pub const fn colors(&self) -> Option<&WifSequence<WifColor>> {
         self.colors.as_ref()
     }
 
     /// Serialize into 2 sections of the wif
     pub fn push_and_mark(&self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
-        WifSection::ColorPalette.push_and_mark(map, self.color_range.as_ref());
-        WifSection::ColorTable.push_and_mark(map, self.colors());
+        Section::ColorPalette.push_and_mark(map, self.color_range.as_ref());
+        Section::ColorTable.push_and_mark(map, self.colors());
         if let Some(colors) = self.colors() {
-            map.entry(WifSection::ColorPalette.to_string())
+            map.entry(Section::ColorPalette.to_string())
                 .or_default()
                 .insert(String::from("Entries"), Some(format!("{}", colors.0.len())));
         }
@@ -96,7 +97,7 @@ impl ColorPalette {
 
 /// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
 /// The actual range is specified in [`ColorPalette`]
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy)]
 pub struct WifColor(pub u32, pub u32, pub u32);
 
 impl WifValue for WifColor {
@@ -109,7 +110,7 @@ impl WifValue for WifColor {
     fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError> {
         let values = Self::parse_arr(string_value, key_for_err)?;
         match values.len() {
-            3 => Ok(WifColor(values[0], values[1], values[2])),
+            3 => Ok(Self(values[0], values[1], values[2])),
             _ => Err(Self::type_error(string_value, key_for_err)),
         }
     }
@@ -128,7 +129,7 @@ impl WifValue for u32 {
     fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError> {
         string_value
             .trim()
-            .parse::<u32>()
+            .parse::<Self>()
             .map_err(|_| Self::type_error(string_value, key_for_err))
     }
 
@@ -148,7 +149,7 @@ impl WifValue for Vec<u32> {
 
     fn to_wif_string(&self) -> String {
         self.iter()
-            .map(std::string::ToString::to_string)
+            .map(ToString::to_string)
             .collect::<Vec<String>>()
             .join(",")
     }
@@ -157,7 +158,7 @@ impl WifValue for Vec<u32> {
 /// # Represents a single threading or treadling entry
 ///
 /// A value of `0` represents no thread/treadle.
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
 pub struct SequenceEntry<T>
 where
     T: WifValue + Clone,
@@ -168,14 +169,14 @@ where
 
 impl<T: WifValue + Clone> SequenceEntry<T> {
     /// Index of entry
-    pub fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         self.index
     }
 
     /// Returns the value of the entry.
     ///
     /// 0 indicates no entry at this index. To get [`None`] use [`value_option`][Self::value_option]
-    pub fn value(&self) -> &T {
+    pub const fn value(&self) -> &T {
         &self.value
     }
 
@@ -183,11 +184,7 @@ impl<T: WifValue + Clone> SequenceEntry<T> {
     ///
     /// Similar to [`value`][Self::value] but returns [`None`] instead of `0`
     pub fn value_option(&self) -> Option<&T> {
-        if self.value.present() {
-            Some(&self.value)
-        } else {
-            None
-        }
+        self.value.present().then_some(&self.value)
     }
 }
 
@@ -220,7 +217,7 @@ pub trait WifParseable {
 }
 
 /// The color metadata in the `COLOR PALETTE` section of a wif. We only care about the range for the rgb values.
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ColorMetadata(pub u32, pub u32);
 
 impl WifValue for ColorMetadata {
@@ -233,7 +230,7 @@ impl WifValue for ColorMetadata {
         let values = Self::parse_arr(string_value, key_for_err)?;
 
         match values.len() {
-            2 => Ok(ColorMetadata(values[0], values[1])),
+            2 => Ok(Self(values[0], values[1])),
             _ => Err(Self::type_error(string_value, key_for_err)),
         }
     }
@@ -265,7 +262,7 @@ impl WifParseable for ColorMetadata {
 ///
 /// [`SequenceEntry`]'s in the vector should be in order by in order by index, with no duplicates or
 /// missing entries, but this is not guaranteed when constructed from a `.wif` file.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct WifSequence<T: Clone + WifValue>(pub Vec<SequenceEntry<T>>);
 
 impl WifSequence<Vec<u32>> {
@@ -284,6 +281,7 @@ impl WifSequence<Vec<u32>> {
 }
 
 /// Iterator for a [`WifSequence`], returns a default when indices are skipped, returns clones of entries
+#[derive(Debug)]
 pub struct SequenceIterDefault<'a, T: Clone + WifValue + Default> {
     /// index of iterator
     index: usize,
@@ -312,6 +310,7 @@ impl<T: Clone + WifValue + Default> Iterator for SequenceIterDefault<'_, T> {
 
 /// Iterator for a [`WifSequence`], returns items as Option, returning `Some(None)` on skipped
 /// indices, and `Some(Some(T))` on present ones
+#[derive(Debug)]
 pub struct SequenceIterOption<'a, T: Clone + WifValue> {
     /// index of iterator
     index: usize,
@@ -340,7 +339,7 @@ impl<'a, T: Clone + WifValue> Iterator for SequenceIterOption<'a, T> {
 
 impl<T: Clone + WifValue> IntoIterator for WifSequence<T> {
     type Item = SequenceEntry<T>;
-    type IntoIter = std::vec::IntoIter<SequenceEntry<T>>;
+    type IntoIter = vec::IntoIter<SequenceEntry<T>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -350,7 +349,7 @@ impl<T: Clone + WifValue> IntoIterator for WifSequence<T> {
 impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
     /// Constructs a sequence from an [`IndexMap`]. Returns a parse error on invalid keys or values
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError> {
-        Ok(WifSequence(
+        Ok(Self(
             conf_data
                 .iter()
                 .map(|(key, value)| {
@@ -381,7 +380,7 @@ impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
 impl<T: Clone + WifValue + Default> WifSequence<T> {
     /// Same as [`from_array`](Self::from_array) but it accepts [None] in place of 0 values
     pub fn from_option_array(sequence: &[Option<T>]) -> Self {
-        WifSequence(
+        Self(
             sequence
                 .iter()
                 .enumerate()
@@ -389,7 +388,7 @@ impl<T: Clone + WifValue + Default> WifSequence<T> {
                     let value = value.as_ref();
                     SequenceEntry {
                         index: index + 1,
-                        value: value.unwrap_or(&Default::default()).clone(),
+                        value: value.map_or_else(Default::default, Clone::clone),
                     }
                 })
                 .collect(),
@@ -398,7 +397,7 @@ impl<T: Clone + WifValue + Default> WifSequence<T> {
 
     /// Returns an owned iterator that returns default values for skipped indices
     #[must_use]
-    pub fn default_iter(&self) -> SequenceIterDefault<T> {
+    pub const fn default_iter(&self) -> SequenceIterDefault<T> {
         SequenceIterDefault {
             index: 0,
             inner_index: 0,
@@ -410,7 +409,7 @@ impl<T: Clone + WifValue + Default> WifSequence<T> {
 impl<T: Clone + WifValue> WifSequence<T> {
     /// Constructs a new [`WifSequence`] from an array. This sequence will always be valid
     pub fn from_array(sequence: &[T]) -> Self {
-        WifSequence(
+        Self(
             sequence
                 .iter()
                 .enumerate()
@@ -424,7 +423,7 @@ impl<T: Clone + WifValue> WifSequence<T> {
 
     /// Creates an iterator that returns the values in the sequence, wrapped in an option, with `None` for missing values
     #[must_use]
-    pub fn option_iter(&self) -> SequenceIterOption<T> {
+    pub const fn option_iter(&self) -> SequenceIterOption<T> {
         SequenceIterOption {
             index: 0,
             inner_index: 0,
@@ -483,7 +482,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_vec() {
+    fn parse_vec() {
         assert_eq!(Vec::parse("1,4,6,8", "").unwrap(), vec![1, 4, 6, 8]);
         assert_eq!(Vec::parse("1 ,4 ,6, 8    ", "").unwrap(), vec![1, 4, 6, 8]);
         assert_eq!(
@@ -513,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_color() {
+    fn parse_color() {
         assert_eq!(WifColor::parse("1,0,5", "").unwrap(), WifColor(1, 0, 5));
         assert_eq!(
             WifColor::parse("1,0,5,7", "").unwrap_err(),

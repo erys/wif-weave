@@ -19,7 +19,7 @@ pub const WIF_DATE: &str = "April 20, 1997";
 pub const WIF_VERSION: &str = "1.1";
 
 /// Representation of the data in a `.wif` file
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Wif {
     inner_map: IndexMap<String, IndexMap<String, Option<String>>>,
     treadling: Option<WifSequence<Vec<u32>>>,
@@ -31,31 +31,34 @@ pub struct Wif {
 
 pub mod data;
 
-#[cfg(feature = "async")]
 impl Wif {
+    #[cfg(feature = "async")]
     /// Asynchronously read a file and parse it into a [Wif]
     /// # Errors
     /// Returns an error if file reading or ini parsing fails
-    pub async fn load_async<T: AsRef<Path>>(
-        path: T,
-    ) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
+    pub async fn load_async<T>(path: T) -> Result<(Self, HashMap<Section, ParseError>), String>
+    where
+        T: AsRef<Path> + Send + Sync,
+    {
         let mut ini = Ini::new();
         let map = ini.load_async(path).await?;
         Ok(Self::from_ini(map))
     }
 
+    #[cfg(feature = "async")]
     /// Asynchronously write to a `.wif` file
     ///
     /// # Errors
     /// returns an [`io::Error`] if file writing fails
-    pub async fn write_async<T: AsRef<Path>>(&self, path: T) -> Result<(), io::Error> {
+    pub async fn write_async<T>(&self, path: T) -> Result<(), io::Error>
+    where
+        T: AsRef<Path> + Send + Sync,
+    {
         self.to_ini()
             .pretty_write_async(path, &Self::write_options())
             .await
     }
-}
 
-impl Wif {
     fn write_options() -> WriteOptions {
         let mut options = WriteOptions::new();
         options.blank_lines_between_sections = 1;
@@ -64,20 +67,20 @@ impl Wif {
 
     fn from_ini(
         mut map: IndexMap<String, IndexMap<String, Option<String>>>,
-    ) -> (Self, HashMap<WifSection, ParseError>) {
+    ) -> (Self, HashMap<Section, ParseError>) {
         let mut errors = HashMap::new();
-        map.shift_remove_entry(&WifSection::Contents.index_map_key());
+        map.shift_remove_entry(&Section::Contents.index_map_key());
 
         (
-            Wif {
-                treadling: WifSection::Treadling.parse_and_pop(&mut map, &mut errors),
-                threading: WifSection::Threading.parse_and_pop(&mut map, &mut errors),
-                lift_plan: WifSection::LiftPlan.parse_and_pop(&mut map, &mut errors),
+            Self {
+                treadling: Section::Treadling.parse_and_pop(&mut map, &mut errors),
+                threading: Section::Threading.parse_and_pop(&mut map, &mut errors),
+                lift_plan: Section::LiftPlan.parse_and_pop(&mut map, &mut errors),
                 color_palette: ColorPalette::maybe_build(
-                    WifSection::ColorPalette.parse_and_pop(&mut map, &mut errors),
-                    WifSection::ColorTable.parse_and_pop(&mut map, &mut errors),
+                    Section::ColorPalette.parse_and_pop(&mut map, &mut errors),
+                    Section::ColorTable.parse_and_pop(&mut map, &mut errors),
                 ),
-                tie_up: WifSection::TieUp.parse_and_pop(&mut map, &mut errors),
+                tie_up: Section::TieUp.parse_and_pop(&mut map, &mut errors),
                 inner_map: map,
             },
             errors,
@@ -92,9 +95,7 @@ impl Wif {
     ///
     /// Errors with the Wif specification will be collected into the second value of the return, but the other
     /// sections will still be parsed.
-    pub fn load<T: AsRef<Path>>(
-        path: T,
-    ) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
+    pub fn load<T: AsRef<Path>>(path: T) -> Result<(Self, HashMap<Section, ParseError>), String> {
         let mut ini = Ini::new();
         let map = ini.load(path)?;
         Ok(Self::from_ini(map))
@@ -105,7 +106,7 @@ impl Wif {
     /// # Errors
     ///
     /// Returns an error if the text doesn't match the INI format
-    pub fn read(text: String) -> Result<(Self, HashMap<WifSection, ParseError>), String> {
+    pub fn read(text: String) -> Result<(Self, HashMap<Section, ParseError>), String> {
         let mut ini = Ini::new();
         let map = ini.read(text)?;
         Ok(Self::from_ini(map))
@@ -118,7 +119,7 @@ impl Wif {
 
         // Populate header
         let mut header = inner
-            .shift_remove_entry(&WifSection::Header.to_string())
+            .shift_remove_entry(&Section::Header.to_string())
             .map(|e| e.1)
             .unwrap_or_default();
         header
@@ -133,17 +134,17 @@ impl Wif {
         header
             .entry(String::from("Source Program"))
             .or_insert(Some(String::from("wif-weave")));
-        ini_map.insert(WifSection::Header.to_string(), header);
+        ini_map.insert(Section::Header.to_string(), header);
 
         // Create contents
-        ini_map.insert(WifSection::Contents.to_string(), IndexMap::new());
-        inner.shift_remove_entry(&WifSection::Contents.index_map_key());
+        ini_map.insert(Section::Contents.to_string(), IndexMap::new());
+        inner.shift_remove_entry(&Section::Contents.index_map_key());
 
         // Add parsed sections
-        WifSection::Threading.push_and_mark(ini_map, self.threading());
-        WifSection::Treadling.push_and_mark(ini_map, self.treadling());
-        WifSection::LiftPlan.push_and_mark(ini_map, self.lift_plan());
-        WifSection::TieUp.push_and_mark(ini_map, self.tie_up());
+        Section::Threading.push_and_mark(ini_map, self.threading());
+        Section::Treadling.push_and_mark(ini_map, self.treadling());
+        Section::LiftPlan.push_and_mark(ini_map, self.lift_plan());
+        Section::TieUp.push_and_mark(ini_map, self.tie_up());
         if let Some(palette) = self.color_palette() {
             palette.push_and_mark(ini_map);
         }
@@ -151,7 +152,7 @@ impl Wif {
         // insert other sections
         for (key, section) in inner {
             // only insert valid sections
-            if let Ok(wif_section) = WifSection::from_str(key.to_uppercase().as_str()) {
+            if let Ok(wif_section) = Section::from_str(key.to_uppercase().as_str()) {
                 ini_map.insert(wif_section.to_string(), section);
             }
         }
@@ -175,7 +176,7 @@ impl Wif {
 
     /// Returns the threading sequence if present
     #[must_use]
-    pub fn threading(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn threading(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.threading.as_ref()
     }
 
@@ -192,45 +193,45 @@ impl Wif {
 
     /// Returns the treadling sequence if present
     #[must_use]
-    pub fn treadling(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn treadling(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.treadling.as_ref()
     }
 
     /// Returns the lift plan if present
     #[must_use]
-    pub fn lift_plan(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn lift_plan(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.lift_plan.as_ref()
     }
 
     /// Returns the tie-up if present
     #[must_use]
-    pub fn tie_up(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn tie_up(&self) -> Option<&WifSequence<Vec<u32>>> {
         self.tie_up.as_ref()
     }
 
     /// Returns the color palette if present. Corresponds to [`ColorPalette`][WifSection::ColorPalette] and [`ColorTable`][WifSection::ColorTable]
     #[must_use]
-    pub fn color_palette(&self) -> Option<&ColorPalette> {
+    pub const fn color_palette(&self) -> Option<&ColorPalette> {
         self.color_palette.as_ref()
     }
 
     /// Returns list of all sections present in the original `.wif`
-    pub fn contents(&self) -> HashSet<WifSection> {
+    pub fn contents(&self) -> HashSet<Section> {
         let mut contents = HashSet::new();
         if self.treadling.is_some() {
-            contents.insert(WifSection::Treadling);
+            contents.insert(Section::Treadling);
         }
         if self.threading.is_some() {
-            contents.insert(WifSection::Threading);
+            contents.insert(Section::Threading);
         }
         if self.tie_up.is_some() {
-            contents.insert(WifSection::TieUp);
+            contents.insert(Section::TieUp);
         }
         if self.lift_plan.is_some() {
-            contents.insert(WifSection::LiftPlan);
+            contents.insert(Section::LiftPlan);
         }
         if self.color_palette.as_ref().map(|p| p.colors()).is_some() {
-            contents.insert(WifSection::ColorTable);
+            contents.insert(Section::ColorTable);
         }
         if self
             .color_palette
@@ -238,10 +239,10 @@ impl Wif {
             .map(ColorPalette::color_range)
             .is_some()
         {
-            contents.insert(WifSection::ColorPalette);
+            contents.insert(Section::ColorPalette);
         }
 
-        WifSection::iter().for_each(|sec| {
+        Section::iter().for_each(|sec| {
             if self.inner_map.contains_key(&sec.to_string().to_lowercase()) {
                 contents.insert(sec);
             }
@@ -257,7 +258,7 @@ impl Wif {
     /// Returns an error if the section has a specific method to retrieve it.
     pub fn get_section(
         &self,
-        section: &WifSection,
+        section: &Section,
     ) -> Result<Option<&IndexMap<String, Option<String>>>, String> {
         if Self::implemented(section) {
             Err(String::from("Must be retrieved with specific method"))
@@ -268,22 +269,22 @@ impl Wif {
 
     /// Returns whether the given section can be retrieved via a specialized method or via [`get_section`](Self::get_section)
     #[must_use]
-    pub fn implemented(section: &WifSection) -> bool {
+    pub const fn implemented(section: &Section) -> bool {
         matches!(
             section,
-            WifSection::Contents
-                | WifSection::ColorPalette
-                | WifSection::ColorTable
-                | WifSection::Threading
-                | WifSection::Treadling
-                | WifSection::TieUp
-                | WifSection::LiftPlan
+            Section::Contents
+                | Section::ColorPalette
+                | Section::ColorTable
+                | Section::Threading
+                | Section::Treadling
+                | Section::TieUp
+                | Section::LiftPlan
         )
     }
 }
 
 /// Error when parsing Wif file
-#[derive(Error, Debug, Clone, PartialEq)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// A required field is missing
     #[error("Required field {0} is missing")]
@@ -307,7 +308,7 @@ pub enum ParseError {
 }
 
 /// Validation errors for [`WifSequence`]
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SequenceError {
     /// An entry with an index of 0 was found in the sequence
     #[error("Found 0 index at entry {0}")]
@@ -342,9 +343,9 @@ pub enum SequenceError {
 }
 
 /// Enum of all the possible sections in a `.wif` document (excluding private sections)
-#[derive(EnumString, Debug, PartialEq, Eq, Hash, Clone, EnumIter, IntoStaticStr, Display)]
+#[derive(EnumString, Debug, PartialEq, Eq, Hash, Clone, EnumIter, IntoStaticStr, Display, Copy)]
 #[strum(use_phf, serialize_all = "UPPERCASE")]
-pub enum WifSection {
+pub enum Section {
     /// `WIF` section
     #[strum(serialize = "WIF")]
     Header,
@@ -424,19 +425,19 @@ pub enum WifSection {
     WeftSymbols,
 }
 
-impl WifSection {
-    fn index_map_key(&self) -> String {
+impl Section {
+    fn index_map_key(self) -> String {
         self.to_string().to_lowercase()
     }
-    fn get_data<'a>(
-        &self,
-        map: &'a IndexMap<String, IndexMap<String, Option<String>>>,
-    ) -> Option<&'a IndexMap<String, Option<String>>> {
+    fn get_data(
+        self,
+        map: &IndexMap<String, IndexMap<String, Option<String>>>,
+    ) -> Option<&IndexMap<String, Option<String>>> {
         map.get(&self.index_map_key())
     }
 
     fn parse_and_pop<T: WifParseable>(
-        &self,
+        self,
         map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
         error_map: &mut HashMap<Self, ParseError>,
     ) -> Option<T> {
@@ -448,14 +449,14 @@ impl WifSection {
                 Some(section)
             }
             Err(e) => {
-                error_map.insert(self.clone(), e);
+                error_map.insert(self, e);
                 None
             }
         }
     }
 
     fn push_and_mark<T: WifParseable>(
-        &self,
+        self,
         map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
         section: Option<&T>,
     ) {
@@ -465,7 +466,7 @@ impl WifSection {
         }
     }
 
-    fn mark_present(&self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
+    fn mark_present(self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
         map.entry(Self::Contents.to_string())
             .or_default()
             .insert(self.to_string(), Some(String::from("1")));
@@ -476,10 +477,9 @@ impl WifSection {
 mod tests {
     use super::*;
     use data::WifValue;
-    use std::str::FromStr;
 
     #[test]
-    fn test_parse_u32() {
+    fn parse_u32() {
         assert_eq!(u32::parse("1", "").unwrap(), 1);
         assert_eq!(u32::parse("  1   ", "").unwrap(), 1);
         assert_eq!(
@@ -501,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn test_all_wif_fields_in_enum() {
+    fn all_wif_fields_in_enum() {
         let fields = [
             "WIF",
             "CONTENTS",
@@ -535,10 +535,7 @@ mod tests {
         ];
 
         for field in fields {
-            assert!(
-                WifSection::from_str(field).is_ok(),
-                "{field} is not in enum"
-            );
+            assert!(Section::from_str(field).is_ok(), "{field} is not in enum");
         }
     }
 }
