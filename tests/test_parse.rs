@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use wif_weave::Wif;
-use wif_weave::wif::data::WifColor;
+use wif_weave::wif::data::{ThreadUnit, WifColor};
 
 #[test]
 fn parse_simple_fiberworks_wif() {
@@ -37,6 +37,23 @@ fn parse_simple_fiberworks_wif() {
     assert_eq!(
         wif.color_palette().unwrap().color_range().unwrap(),
         &(0, 999)
+    );
+
+    assert_eq!(wif.weft().unwrap().threads().as_option().unwrap(), &13);
+    assert_eq!(
+        wif.weft().unwrap().units().unwrap().as_option().unwrap(),
+        &ThreadUnit::Centimeters
+    );
+    assert_eq!(
+        0.212,
+        wif.warp()
+            .unwrap()
+            .spacing()
+            .unwrap()
+            .as_option()
+            .unwrap()
+            .clone()
+            .into(),
     );
 
     assert_eq!(

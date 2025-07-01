@@ -1,6 +1,7 @@
 //! The wif module provides classes needed to extract data from a `.wif` file
 
 use crate::wif::data::WifSequence;
+use crate::wif::sections::WarpWeft;
 use configparser::ini::{Ini, WriteOptions};
 use data::WifParseable;
 use indexmap::IndexMap;
@@ -29,6 +30,8 @@ pub struct Wif {
     color_palette: Option<ColorPalette>,
     tie_up: Option<WifSequence<Vec<u32>>>,
     weaving: Option<Weaving>,
+    warp: Option<WarpWeft>,
+    weft: Option<WarpWeft>,
 }
 
 pub mod data;
@@ -86,6 +89,8 @@ impl Wif {
                 ),
                 tie_up: Section::TieUp.parse_and_pop(&mut map, &mut errors),
                 weaving: Section::Weaving.parse_and_pop(&mut map, &mut errors),
+                warp: Section::Warp.parse_and_pop(&mut map, &mut errors),
+                weft: Section::Weft.parse_and_pop(&mut map, &mut errors),
                 inner_map: map,
             },
             errors,
@@ -156,6 +161,8 @@ impl Wif {
             palette.push_and_mark(ini_map);
         }
         Section::Weaving.push_and_mark(ini_map, self.weaving());
+        Section::Warp.push_and_mark(ini_map, self.warp());
+        Section::Weft.push_and_mark(ini_map, self.weft());
 
         // insert other sections
         for (key, section) in inner {
@@ -227,6 +234,18 @@ impl Wif {
     #[must_use]
     pub const fn weaving(&self) -> Option<&Weaving> {
         self.weaving.as_ref()
+    }
+
+    /// Returns the warp section if present
+    #[must_use]
+    pub const fn warp(&self) -> Option<&WarpWeft> {
+        self.warp.as_ref()
+    }
+
+    /// Returns the weft section if present
+    #[must_use]
+    pub const fn weft(&self) -> Option<&WarpWeft> {
+        self.weft.as_ref()
     }
 
     /// Returns list of all sections present in the original `.wif`

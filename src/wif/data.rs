@@ -4,8 +4,9 @@ use crate::Section;
 use crate::wif::{ParseError, SequenceError};
 use indexmap::{IndexMap, indexmap};
 use std::cmp::Ordering;
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 use std::vec;
+use strum::EnumString;
 
 const TRUES: [&str; 6] = ["true", "yes", "t", "y", "on", "1"];
 const FALSES: [&str; 6] = ["false", "no", "f", "n", "off", "0"];
@@ -489,6 +490,9 @@ impl<T: Clone + WifValue> WifSequence<T> {
     }
 }
 
+/// Alias for `Option<ParsedValue<T>>`
+pub type OptionalValue<T> = Option<ParsedValue<T>>;
+
 /// Value parsed from a wif field. If parsing failed, the original value is inside the `Err`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedValue<T>(Result<T, (ParseError, Option<String>)>)
@@ -552,6 +556,84 @@ where
 
     pub(crate) fn insert(&self, key: String, map: &mut IndexMap<String, Option<String>>) {
         map.insert(key, self.to_wif_string());
+    }
+}
+
+/// Allowed units for thread thickness info.
+#[derive(Clone, Debug, EnumString, PartialEq, Eq, Copy, strum::Display)]
+#[strum(ascii_case_insensitive, serialize_all = "lowercase")]
+pub enum ThreadUnit {
+    /// Centimeters
+    Centimeters,
+    /// Inches
+    Inches,
+    /// Decipoints, seems to be 1/10 of a point (as in 12 pt font). 1/720 of an inch.
+    Decipoints,
+}
+
+impl WifValue for ThreadUnit {
+    const EXPECTED_TYPE: &'static str = "inches, centimeters, or decipoints";
+
+    fn present(&self) -> bool {
+        true
+    }
+
+    fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError>
+    where
+        Self: Sized,
+    {
+        Self::try_from(string_value).map_err(|_| Self::type_error(string_value, key_for_err))
+    }
+
+    fn to_wif_string(&self) -> String {
+        self.to_string()
+    }
+}
+
+/// Wrapper for float values in a wif. Guaranteed to be parseable as a `f64`
+///
+/// Since this crate does no calculations, holding the value as a decimal allows for no loss of
+/// precision and leaves the decision of how to handle decimal points to the caller.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct WifDecimal(String);
+
+#[expect(
+    clippy::fallible_impl_from,
+    reason = "WifDecimal guarantees the value is parseable as a float"
+)]
+impl From<WifDecimal> for f64 {
+    fn from(value: WifDecimal) -> Self {
+        value.0.parse().unwrap()
+    }
+}
+
+impl TryFrom<String> for WifDecimal {
+    type Error = ParseFloatError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let _: f64 = value.parse()?;
+
+        Ok(Self(value))
+    }
+}
+
+impl WifValue for WifDecimal {
+    const EXPECTED_TYPE: &'static str = "decimal";
+
+    fn present(&self) -> bool {
+        true
+    }
+
+    fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError>
+    where
+        Self: Sized,
+    {
+        Self::try_from(string_value.to_owned())
+            .map_err(|_| Self::type_error(string_value, key_for_err))
+    }
+
+    fn to_wif_string(&self) -> String {
+        self.0.clone()
     }
 }
 
