@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/erys/wif-weave/compare/v0.1.2...v0.2.0) - 2025-07-01
+
+### Added
+
+- [**breaking**] add weaving section support, various breaking refactors
+
+### Other
+
+- [**breaking**] Lots more linters, renames WifSection to Section
+- *(README)* Adds info about some weaving software
+
 ## [0.1.2](https://github.com/erys/wif-weave/compare/v0.1.1...v0.1.2) - 2025-06-23
 
 ### Added
