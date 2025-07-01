@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use wif_weave::Wif;
-use wif_weave::wif::data::{ColorMetadata, WifColor};
+use wif_weave::wif::data::WifColor;
 
 #[test]
 fn parse_simple_fiberworks_wif() {
     let (wif, errors) = Wif::load("wifs/simple_fiberworks_draft.wif").unwrap();
-    assert!(errors.is_empty());
+    assert_eq!(errors, HashMap::new());
     assert_eq!(
         wif.threading()
             .unwrap()
@@ -13,6 +14,15 @@ fn parse_simple_fiberworks_wif() {
             .default_iter()
             .collect::<Vec<u32>>(),
         vec![1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
+    );
+    assert_eq!(
+        wif.weaving()
+            .unwrap()
+            .treadles()
+            .unwrap()
+            .as_option()
+            .unwrap(),
+        &4
     );
     assert_eq!(
         wif.treadling()
@@ -26,7 +36,7 @@ fn parse_simple_fiberworks_wif() {
 
     assert_eq!(
         wif.color_palette().unwrap().color_range().unwrap(),
-        ColorMetadata(0, 999)
+        &(0, 999)
     );
 
     assert_eq!(

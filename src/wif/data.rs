@@ -7,6 +7,9 @@ use std::cmp::Ordering;
 use std::num::ParseIntError;
 use std::vec;
 
+const TRUES: [&str; 6] = ["true", "yes", "t", "y", "on", "1"];
+const FALSES: [&str; 6] = ["false", "no", "f", "n", "off", "0"];
+
 /// Trait for values in `.wif` that are parseable from a string
 pub trait WifValue {
     /// Expected type to find in the wif file
@@ -45,54 +48,6 @@ pub trait WifValue {
 
     /// Serialize into a string
     fn to_wif_string(&self) -> String;
-}
-
-/// Color palette in a `.wif`. Other sections may reference colors in this palette by index
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ColorPalette {
-    color_range: Option<ColorMetadata>,
-    colors: Option<WifSequence<WifColor>>,
-}
-
-impl ColorPalette {
-    /// Constructs a new [`ColorPalette`]. If both arguments are [None], returns [None]
-    #[must_use]
-    pub fn maybe_build(
-        color_range: Option<ColorMetadata>,
-        colors: Option<WifSequence<WifColor>>,
-    ) -> Option<Self> {
-        if color_range.is_none() && colors.is_none() {
-            None
-        } else {
-            Some(Self {
-                color_range,
-                colors,
-            })
-        }
-    }
-
-    /// The color range of entries in the palette. May be 0-255, but some popular programs also use 0-999
-    #[must_use]
-    pub const fn color_range(&self) -> Option<ColorMetadata> {
-        self.color_range
-    }
-
-    /// The colors in the palette
-    #[must_use]
-    pub const fn colors(&self) -> Option<&WifSequence<WifColor>> {
-        self.colors.as_ref()
-    }
-
-    /// Serialize into 2 sections of the wif
-    pub fn push_and_mark(&self, map: &mut IndexMap<String, IndexMap<String, Option<String>>>) {
-        Section::ColorPalette.push_and_mark(map, self.color_range.as_ref());
-        Section::ColorTable.push_and_mark(map, self.colors());
-        if let Some(colors) = self.colors() {
-            map.entry(Section::ColorPalette.to_string())
-                .or_default()
-                .insert(String::from("Entries"), Some(format!("{}", colors.0.len())));
-        }
-    }
 }
 
 /// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
@@ -138,6 +93,32 @@ impl WifValue for u32 {
     }
 }
 
+impl WifValue for bool {
+    const EXPECTED_TYPE: &'static str = "ini boolean";
+
+    fn present(&self) -> bool {
+        true
+    }
+
+    fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError>
+    where
+        Self: Sized,
+    {
+        let lower = string_value.trim().to_lowercase();
+        if TRUES.contains(&lower.as_str()) {
+            Ok(true)
+        } else if FALSES.contains(&lower.as_str()) {
+            Ok(false)
+        } else {
+            Err(Self::type_error(string_value, key_for_err))
+        }
+    }
+
+    fn to_wif_string(&self) -> String {
+        self.to_string()
+    }
+}
+
 impl WifValue for Vec<u32> {
     const EXPECTED_TYPE: &'static str = "list of shafts";
     fn present(&self) -> bool {
@@ -152,6 +133,29 @@ impl WifValue for Vec<u32> {
             .map(ToString::to_string)
             .collect::<Vec<String>>()
             .join(",")
+    }
+}
+
+impl WifValue for (u32, u32) {
+    const EXPECTED_TYPE: &'static str = "Integer pair";
+
+    fn present(&self) -> bool {
+        true
+    }
+
+    fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError>
+    where
+        Self: Sized,
+    {
+        let vec = Self::parse_arr(string_value, key_for_err)?;
+        match vec.len() {
+            2 => Ok((vec[0], vec[1])),
+            _ => Err(Self::type_error(string_value, key_for_err)),
+        }
+    }
+
+    fn to_wif_string(&self) -> String {
+        format!("{}, {}", self.0, self.1)
     }
 }
 
@@ -208,7 +212,7 @@ pub trait WifParseable {
     ///
     /// # Errors
     /// If the keys or values aren't the expected types
-    fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError>
+    fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> (Self, Vec<ParseError>)
     where
         Self: Sized;
 
@@ -217,43 +221,47 @@ pub trait WifParseable {
 }
 
 /// The color metadata in the `COLOR PALETTE` section of a wif. We only care about the range for the rgb values.
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub struct ColorMetadata(pub u32, pub u32);
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct ColorMetadata(ParsedValue<(u32, u32)>);
 
-impl WifValue for ColorMetadata {
-    const EXPECTED_TYPE: &'static str = "color range";
-    fn present(&self) -> bool {
-        true
+impl ColorMetadata {
+    pub(crate) const fn missing() -> Self {
+        Self(ParsedValue(Err((
+            ParseError::MissingDependentSection {
+                missing_section: Section::ColorPalette,
+                dependent_section: Section::ColorTable,
+            },
+            None,
+        ))))
     }
 
-    fn parse(string_value: &str, key_for_err: &str) -> Result<Self, ParseError> {
-        let values = Self::parse_arr(string_value, key_for_err)?;
+    pub(crate) const fn inner(&self) -> &ParsedValue<(u32, u32)> {
+        &self.0
+    }
 
-        match values.len() {
-            2 => Ok(Self(values[0], values[1])),
-            _ => Err(Self::type_error(string_value, key_for_err)),
+    pub(crate) const fn as_option(&self) -> Option<&Self> {
+        match self.0.0 {
+            Err((ParseError::MissingDependentSection { .. }, ..)) => None,
+            _ => Some(self),
         }
-    }
-
-    fn to_wif_string(&self) -> String {
-        format!("{0},{1}", self.0, self.1)
     }
 }
 
 impl WifParseable for ColorMetadata {
-    fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError> {
-        let value = conf_data.get("range");
+    fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> (Self, Vec<ParseError>) {
+        let parsed: ParsedValue<(u32, u32)> = ParsedValue::parse_required("range", conf_data);
+        let errors: Vec<ParseError> = parsed
+            .0
+            .as_ref()
+            .err()
+            .map_or(vec![], |e| vec![e.0.clone()]);
 
-        let Some(Some(value)) = value else {
-            return Err(ParseError::MissingField(String::from("range")));
-        };
-
-        Self::parse(value, "range")
+        (Self(parsed), errors)
     }
 
     fn to_index_map(&self) -> IndexMap<String, Option<String>> {
         indexmap! {
-            String::from("Range") => Some(self.to_wif_string())
+            String::from("Range") => self.0.to_wif_string()
         }
     }
 }
@@ -348,23 +356,26 @@ impl<T: Clone + WifValue> IntoIterator for WifSequence<T> {
 
 impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
     /// Constructs a sequence from an [`IndexMap`]. Returns a parse error on invalid keys or values
-    fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> Result<Self, ParseError> {
-        Ok(Self(
-            conf_data
-                .iter()
-                .map(|(key, value)| {
-                    let Some(value) = value.as_ref() else {
-                        return Err(ParseError::MissingValue(key.clone()));
-                    };
-                    let Ok(index) = key.parse::<usize>() else {
-                        return Err(ParseError::BadIntegerKey(key.clone()));
-                    };
+    fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> (Self, Vec<ParseError>) {
+        let mut sequence = Vec::new();
+        let mut errors = Vec::new();
+        for (key, value) in conf_data {
+            let Some(value) = value.as_ref() else {
+                errors.push(ParseError::MissingValue(key.clone()));
+                continue;
+            };
+            let Ok(index) = key.parse::<usize>() else {
+                errors.push(ParseError::BadIntegerKey(key.clone()));
+                continue;
+            };
 
-                    let value = T::parse(value, key)?;
-                    Ok::<SequenceEntry<T>, ParseError>(SequenceEntry { index, value })
-                })
-                .collect::<Result<Vec<SequenceEntry<T>>, ParseError>>()?,
-        ))
+            let result = T::parse(value, key);
+            match result {
+                Ok(value) => sequence.push(SequenceEntry { index, value }),
+                Err(e) => errors.push(e),
+            }
+        }
+        (Self(sequence), errors)
     }
 
     fn to_index_map(&self) -> IndexMap<String, Option<String>> {
@@ -444,12 +455,12 @@ impl<T: Clone + WifValue> WifSequence<T> {
     /// let map = indexmap! {
     ///     String::from("0") => Some(String::from("1"))
     /// };
-    /// let sequence = WifSequence::<u32>::from_index_map(&map);
-    /// assert_eq!(SequenceError::ZeroError(0), sequence.unwrap().validate().unwrap_err());
+    /// let sequence = WifSequence::<u32>::from_index_map(&map).0;
+    /// assert_eq!(SequenceError::Zero(0), sequence.validate().unwrap_err());
     /// ```
     pub fn validate(&self) -> Result<(), SequenceError> {
         if !self.0.is_empty() && self.0[0].index == 0 {
-            return Err(SequenceError::ZeroError(0));
+            return Err(SequenceError::Zero(0));
         }
 
         for i in 0..(self.0.len() - 1) {
@@ -459,14 +470,14 @@ impl<T: Clone + WifValue> WifSequence<T> {
             match ok_index.cmp(&maybe_index) {
                 Ordering::Less => {}
                 Ordering::Equal => {
-                    return Err(SequenceError::RepeatError {
+                    return Err(SequenceError::Repeat {
                         last_ok_position: i,
                         error_position: i + 1,
                         duplicate_index: ok_index,
                     });
                 }
                 Ordering::Greater => {
-                    return Err(SequenceError::OutOfOrderError {
+                    return Err(SequenceError::OutOfOrder {
                         last_ok_index: ok_index,
                         out_of_order_index: maybe_index,
                         out_of_order_position: i + 1,
@@ -477,6 +488,73 @@ impl<T: Clone + WifValue> WifSequence<T> {
         Ok(())
     }
 }
+
+/// Value parsed from a wif field. If parsing failed, the original value is inside the `Err`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedValue<T>(Result<T, (ParseError, Option<String>)>)
+where
+    T: WifValue;
+
+impl<T> ParsedValue<T>
+where
+    T: WifValue,
+{
+    fn parse(wif_string: &str, key: &str) -> Self {
+        let result = T::parse(wif_string, key);
+        Self(result.map_err(|e| (e, Some(wif_string.to_owned()))))
+    }
+
+    /// Get as result
+    ///
+    /// # Errors
+    /// Original parse error and string value
+    pub const fn as_result(&self) -> Result<&T, &(ParseError, Option<String>)> {
+        self.0.as_ref()
+    }
+
+    /// Gets inner value as an option
+    pub fn as_option(&self) -> Option<&T> {
+        self.0.as_ref().ok()
+    }
+
+    /// Get error from result
+    pub fn error(&self) -> Option<&ParseError> {
+        self.0.as_ref().map_err(|e| &e.0).err()
+    }
+
+    pub(crate) fn parse_optional(
+        key: &str,
+        map: &IndexMap<String, Option<String>>,
+    ) -> Option<Self> {
+        match map.get(&key.to_lowercase()) {
+            None => None,
+            Some(None) => Some(Self(Err((ParseError::MissingValue(key.to_owned()), None)))),
+            Some(Some(wif_string)) => Some(Self::parse(wif_string, key)),
+        }
+    }
+
+    pub(crate) fn parse_required(key: &str, map: &IndexMap<String, Option<String>>) -> Self {
+        let lower_key = key.to_lowercase();
+        match map.get(&lower_key) {
+            None => Self(Err((ParseError::MissingField(key.to_owned()), None))),
+            Some(None) => Self(Err((ParseError::MissingValue(key.to_owned()), None))),
+            Some(Some(wif_string)) => Self::parse(wif_string, key),
+        }
+    }
+
+    /// Get the value as a string. If parsing failed, returns the original string value
+    pub fn to_wif_string(&self) -> Option<String> {
+        match &self.0 {
+            Ok(v) => Some(v.to_wif_string()),
+            Err((_, wif_string)) => wif_string.clone(),
+        }
+    }
+
+    pub(crate) fn insert(&self, key: String, map: &mut IndexMap<String, Option<String>>) {
+        map.insert(key, self.to_wif_string());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

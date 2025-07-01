@@ -1,9 +1,10 @@
 //! The wif module provides classes needed to extract data from a `.wif` file
 
-use crate::wif::data::{ColorPalette, WifSequence};
+use crate::wif::data::WifSequence;
 use configparser::ini::{Ini, WriteOptions};
 use data::WifParseable;
 use indexmap::IndexMap;
+use sections::{ColorPalette, Weaving};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
@@ -27,16 +28,19 @@ pub struct Wif {
     lift_plan: Option<WifSequence<Vec<u32>>>,
     color_palette: Option<ColorPalette>,
     tie_up: Option<WifSequence<Vec<u32>>>,
+    weaving: Option<Weaving>,
 }
 
 pub mod data;
+
+pub mod sections;
 
 impl Wif {
     #[cfg(feature = "async")]
     /// Asynchronously read a file and parse it into a [Wif]
     /// # Errors
     /// Returns an error if file reading or ini parsing fails
-    pub async fn load_async<T>(path: T) -> Result<(Self, HashMap<Section, ParseError>), String>
+    pub async fn load_async<T>(path: T) -> Result<(Self, HashMap<Section, Vec<ParseError>>), String>
     where
         T: AsRef<Path> + Send + Sync,
     {
@@ -67,7 +71,7 @@ impl Wif {
 
     fn from_ini(
         mut map: IndexMap<String, IndexMap<String, Option<String>>>,
-    ) -> (Self, HashMap<Section, ParseError>) {
+    ) -> (Self, HashMap<Section, Vec<ParseError>>) {
         let mut errors = HashMap::new();
         map.shift_remove_entry(&Section::Contents.index_map_key());
 
@@ -81,6 +85,7 @@ impl Wif {
                     Section::ColorTable.parse_and_pop(&mut map, &mut errors),
                 ),
                 tie_up: Section::TieUp.parse_and_pop(&mut map, &mut errors),
+                weaving: Section::Weaving.parse_and_pop(&mut map, &mut errors),
                 inner_map: map,
             },
             errors,
@@ -95,7 +100,9 @@ impl Wif {
     ///
     /// Errors with the Wif specification will be collected into the second value of the return, but the other
     /// sections will still be parsed.
-    pub fn load<T: AsRef<Path>>(path: T) -> Result<(Self, HashMap<Section, ParseError>), String> {
+    pub fn load<T: AsRef<Path>>(
+        path: T,
+    ) -> Result<(Self, HashMap<Section, Vec<ParseError>>), String> {
         let mut ini = Ini::new();
         let map = ini.load(path)?;
         Ok(Self::from_ini(map))
@@ -106,7 +113,7 @@ impl Wif {
     /// # Errors
     ///
     /// Returns an error if the text doesn't match the INI format
-    pub fn read(text: String) -> Result<(Self, HashMap<Section, ParseError>), String> {
+    pub fn read(text: String) -> Result<(Self, HashMap<Section, Vec<ParseError>>), String> {
         let mut ini = Ini::new();
         let map = ini.read(text)?;
         Ok(Self::from_ini(map))
@@ -148,6 +155,7 @@ impl Wif {
         if let Some(palette) = self.color_palette() {
             palette.push_and_mark(ini_map);
         }
+        Section::Weaving.push_and_mark(ini_map, self.weaving());
 
         // insert other sections
         for (key, section) in inner {
@@ -215,6 +223,12 @@ impl Wif {
         self.color_palette.as_ref()
     }
 
+    /// Returns the weaving section if present
+    #[must_use]
+    pub const fn weaving(&self) -> Option<&Weaving> {
+        self.weaving.as_ref()
+    }
+
     /// Returns list of all sections present in the original `.wif`
     pub fn contents(&self) -> HashSet<Section> {
         let mut contents = HashSet::new();
@@ -258,7 +272,7 @@ impl Wif {
     /// Returns an error if the section has a specific method to retrieve it.
     pub fn get_section(
         &self,
-        section: &Section,
+        section: Section,
     ) -> Result<Option<&IndexMap<String, Option<String>>>, String> {
         if Self::implemented(section) {
             Err(String::from("Must be retrieved with specific method"))
@@ -269,7 +283,7 @@ impl Wif {
 
     /// Returns whether the given section can be retrieved via a specialized method or via [`get_section`](Self::get_section)
     #[must_use]
-    pub const fn implemented(section: &Section) -> bool {
+    pub const fn implemented(section: Section) -> bool {
         matches!(
             section,
             Section::Contents
@@ -305,6 +319,14 @@ pub enum ParseError {
         /// expected type
         expected_type: String,
     },
+    /// When a section is missing but is required when another section is present
+    #[error("When {dependent_section} is present, {missing_section} must also be present")]
+    MissingDependentSection {
+        /// missing section
+        missing_section: Section,
+        /// section that makes the missing section required
+        dependent_section: Section,
+    },
 }
 
 /// Validation errors for [`WifSequence`]
@@ -312,14 +334,14 @@ pub enum ParseError {
 pub enum SequenceError {
     /// An entry with an index of 0 was found in the sequence
     #[error("Found 0 index at entry {0}")]
-    ZeroError(usize),
+    Zero(usize),
 
     /// An entry with an index less than the previous index was found in the sequence
     #[error(
         "Out of order entry at position {out_of_order_position}, index {out_of_order_index} is \
         smaller than previous index {last_ok_index}"
     )]
-    OutOfOrderError {
+    OutOfOrder {
         /// Index of last valid entry
         last_ok_index: usize,
         /// Position of error entry
@@ -332,7 +354,7 @@ pub enum SequenceError {
     #[error(
         "Duplicate index {duplicate_index} at positions {last_ok_position} and {error_position}"
     )]
-    RepeatError {
+    Repeat {
         /// Position of last valid entry
         last_ok_position: usize,
         /// Position of error entry
@@ -439,20 +461,15 @@ impl Section {
     fn parse_and_pop<T: WifParseable>(
         self,
         map: &mut IndexMap<String, IndexMap<String, Option<String>>>,
-        error_map: &mut HashMap<Self, ParseError>,
+        error_map: &mut HashMap<Self, Vec<ParseError>>,
     ) -> Option<T> {
         let data = self.get_data(map)?;
-        let section = T::from_index_map(data);
-        match section {
-            Ok(section) => {
-                map.shift_remove_entry(&self.index_map_key());
-                Some(section)
-            }
-            Err(e) => {
-                error_map.insert(self, e);
-                None
-            }
+        let (section, errs) = T::from_index_map(data);
+        if !errs.is_empty() {
+            error_map.insert(self, errs);
         }
+        map.shift_remove_entry(&self.index_map_key());
+        Some(section)
     }
 
     fn push_and_mark<T: WifParseable>(
