@@ -37,7 +37,7 @@ impl ColorPalette {
 
     /// The color range of entries in the palette. May be 0-255, but some popular programs also use 0-999
     #[must_use]
-    pub fn color_range(&self) -> Option<&(u32, u32)> {
+    pub fn color_range(&self) -> Option<&(usize, usize)> {
         self.color_range.inner().as_option()
     }
 
@@ -62,8 +62,8 @@ impl ColorPalette {
 /// WEAVING section of wif file
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Weaving {
-    shafts: ParsedValue<u32>,
-    treadles: OptionalValue<u32>,
+    shafts: ParsedValue<usize>,
+    treadles: OptionalValue<usize>,
     rising_shed: OptionalValue<bool>,
 }
 
@@ -74,13 +74,13 @@ impl Weaving {
 
     /// Shaft count
     #[must_use]
-    pub const fn shafts(&self) -> &ParsedValue<u32> {
+    pub const fn shafts(&self) -> &ParsedValue<usize> {
         &self.shafts
     }
 
     /// Treadle count
     #[must_use]
-    pub const fn treadles(&self) -> Option<&ParsedValue<u32>> {
+    pub const fn treadles(&self) -> Option<&ParsedValue<usize>> {
         self.treadles.as_ref()
     }
 
@@ -120,8 +120,8 @@ impl WifParseable for Weaving {
 /// Info in the Warp or Weft section of a wif
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WarpWeft {
-    threads: ParsedValue<u32>,
-    color_index: OptionalValue<u32>,
+    threads: ParsedValue<usize>,
+    color_index: OptionalValue<usize>,
     units: OptionalValue<ThreadUnit>,
     spacing: OptionalValue<WifDecimal>,
     thickness: OptionalValue<WifDecimal>,
@@ -140,13 +140,13 @@ impl WarpWeft {
 
     /// Number of threads in warp/weft
     #[must_use]
-    pub const fn threads(&self) -> &ParsedValue<u32> {
+    pub const fn threads(&self) -> &ParsedValue<usize> {
         &self.threads
     }
 
     /// Default color as index in color palette
     #[must_use]
-    pub const fn color_index(&self) -> Option<&ParsedValue<u32>> {
+    pub const fn color_index(&self) -> Option<&ParsedValue<usize>> {
         self.color_index.as_ref()
     }
 

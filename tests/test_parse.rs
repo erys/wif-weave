@@ -12,7 +12,7 @@ fn parse_simple_fiberworks_wif() {
             .to_single_sequence()
             .unwrap()
             .default_iter()
-            .collect::<Vec<u32>>(),
+            .collect::<Vec<usize>>(),
         vec![1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
     );
     assert_eq!(
@@ -30,7 +30,7 @@ fn parse_simple_fiberworks_wif() {
             .to_single_sequence()
             .unwrap()
             .default_iter()
-            .collect::<Vec<u32>>(),
+            .collect::<Vec<usize>>(),
         vec![1, 2, 3, 4, 3, 2, 1, 2, 3, 4, 3, 2, 1]
     );
 
@@ -65,7 +65,7 @@ fn parse_simple_fiberworks_wif() {
         wif.tie_up()
             .unwrap()
             .default_iter()
-            .collect::<Vec<Vec<u32>>>(),
+            .collect::<Vec<Vec<usize>>>(),
         vec![
             vec![1, 2],
             vec![2, 3],

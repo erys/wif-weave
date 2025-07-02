@@ -24,11 +24,11 @@ pub const WIF_VERSION: &str = "1.1";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Wif {
     inner_map: IndexMap<String, IndexMap<String, Option<String>>>,
-    treadling: Option<WifSequence<Vec<u32>>>,
-    threading: Option<WifSequence<Vec<u32>>>,
-    lift_plan: Option<WifSequence<Vec<u32>>>,
+    treadling: Option<WifSequence<Vec<usize>>>,
+    threading: Option<WifSequence<Vec<usize>>>,
+    lift_plan: Option<WifSequence<Vec<usize>>>,
     color_palette: Option<ColorPalette>,
-    tie_up: Option<WifSequence<Vec<u32>>>,
+    tie_up: Option<WifSequence<Vec<usize>>>,
     weaving: Option<Weaving>,
     warp: Option<WarpWeft>,
     weft: Option<WarpWeft>,
@@ -191,7 +191,7 @@ impl Wif {
 
     /// Returns the threading sequence if present
     #[must_use]
-    pub const fn threading(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn threading(&self) -> Option<&WifSequence<Vec<usize>>> {
         self.threading.as_ref()
     }
 
@@ -199,7 +199,7 @@ impl Wif {
     ///
     /// # Errors
     /// Returns the first index with multiple heddles
-    pub fn single_threading(&self) -> Result<Option<WifSequence<u32>>, usize> {
+    pub fn single_threading(&self) -> Result<Option<WifSequence<usize>>, usize> {
         self.threading
             .as_ref()
             .map(WifSequence::to_single_sequence)
@@ -208,19 +208,19 @@ impl Wif {
 
     /// Returns the treadling sequence if present
     #[must_use]
-    pub const fn treadling(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn treadling(&self) -> Option<&WifSequence<Vec<usize>>> {
         self.treadling.as_ref()
     }
 
     /// Returns the lift plan if present
     #[must_use]
-    pub const fn lift_plan(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn lift_plan(&self) -> Option<&WifSequence<Vec<usize>>> {
         self.lift_plan.as_ref()
     }
 
     /// Returns the tie-up if present
     #[must_use]
-    pub const fn tie_up(&self) -> Option<&WifSequence<Vec<u32>>> {
+    pub const fn tie_up(&self) -> Option<&WifSequence<Vec<usize>>> {
         self.tie_up.as_ref()
     }
 
@@ -515,11 +515,11 @@ mod tests {
     use data::WifValue;
 
     #[test]
-    fn parse_u32() {
-        assert_eq!(u32::parse("1", "").unwrap(), 1);
-        assert_eq!(u32::parse("  1   ", "").unwrap(), 1);
+    fn parse_usize() {
+        assert_eq!(usize::parse("1", "").unwrap(), 1);
+        assert_eq!(usize::parse("  1   ", "").unwrap(), 1);
         assert_eq!(
-            u32::parse("-1", "").unwrap_err(),
+            usize::parse("-1", "").unwrap_err(),
             ParseError::BadValueType {
                 key: String::new(),
                 value: String::from("-1"),
@@ -527,7 +527,7 @@ mod tests {
             }
         );
         assert_eq!(
-            u32::parse("a", "").unwrap_err(),
+            usize::parse("a", "").unwrap_err(),
             ParseError::BadValueType {
                 key: String::new(),
                 value: String::from("a"),

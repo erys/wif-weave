@@ -40,11 +40,11 @@ pub trait WifValue {
     ///
     /// # Errors
     /// If the values aren't a comma separated list of positive integers
-    fn parse_arr(string_value: &str, key_for_err: &str) -> Result<Vec<u32>, ParseError> {
+    fn parse_arr(string_value: &str, key_for_err: &str) -> Result<Vec<usize>, ParseError> {
         string_value
             .split(',')
-            .map(|s| s.trim().parse::<u32>())
-            .collect::<Result<Vec<u32>, ParseIntError>>()
+            .map(|s| s.trim().parse::<usize>())
+            .collect::<Result<Vec<usize>, ParseIntError>>()
             .map_err(|_| Self::type_error(string_value, key_for_err))
     }
 
@@ -55,7 +55,7 @@ pub trait WifValue {
 /// An RGB tuple representing a thread color. Note that the color range is not always 0-255.
 /// The actual range is specified in [`ColorPalette`]
 #[derive(Clone, PartialEq, Eq, Debug, Copy)]
-pub struct WifColor(pub u32, pub u32, pub u32);
+pub struct WifColor(pub usize, pub usize, pub usize);
 
 impl WifValue for WifColor {
     const EXPECTED_TYPE: &'static str = "color triple";
@@ -77,7 +77,7 @@ impl WifValue for WifColor {
     }
 }
 
-impl WifValue for u32 {
+impl WifValue for usize {
     const EXPECTED_TYPE: &'static str = "non-negative integer";
 
     fn present(&self) -> bool {
@@ -121,7 +121,7 @@ impl WifValue for bool {
     }
 }
 
-impl WifValue for Vec<u32> {
+impl WifValue for Vec<usize> {
     const EXPECTED_TYPE: &'static str = "list of shafts";
     fn present(&self) -> bool {
         !self.is_empty()
@@ -138,7 +138,7 @@ impl WifValue for Vec<u32> {
     }
 }
 
-impl WifValue for (u32, u32) {
+impl WifValue for (usize, usize) {
     const EXPECTED_TYPE: &'static str = "Integer pair";
 
     fn present(&self) -> bool {
@@ -194,8 +194,8 @@ impl<T: WifValue + Clone> SequenceEntry<T> {
     }
 }
 
-impl SequenceEntry<Vec<u32>> {
-    fn to_single(&self) -> Result<SequenceEntry<u32>, usize> {
+impl SequenceEntry<Vec<usize>> {
+    fn to_single(&self) -> Result<SequenceEntry<usize>, usize> {
         let new_value = match self.value.len() {
             0 => 0,
             1 => self.value[0],
@@ -224,7 +224,7 @@ pub trait WifParseable {
 
 /// The color metadata in the `COLOR PALETTE` section of a wif. We only care about the range for the rgb values.
 #[derive(PartialEq, Eq, Debug, Clone)]
-pub struct ColorMetadata(ParsedValue<(u32, u32)>);
+pub struct ColorMetadata(ParsedValue<(usize, usize)>);
 
 impl ColorMetadata {
     pub(crate) const fn missing() -> Self {
@@ -237,7 +237,7 @@ impl ColorMetadata {
         ))))
     }
 
-    pub(crate) const fn inner(&self) -> &ParsedValue<(u32, u32)> {
+    pub(crate) const fn inner(&self) -> &ParsedValue<(usize, usize)> {
         &self.0
     }
 
@@ -251,7 +251,7 @@ impl ColorMetadata {
 
 impl WifParseable for ColorMetadata {
     fn from_index_map(conf_data: &IndexMap<String, Option<String>>) -> (Self, Vec<ParseError>) {
-        let parsed: ParsedValue<(u32, u32)> = ParsedValue::parse_required("range", conf_data);
+        let parsed: ParsedValue<(usize, usize)> = ParsedValue::parse_required("range", conf_data);
         let errors: Vec<ParseError> = parsed
             .0
             .as_ref()
@@ -275,17 +275,17 @@ impl WifParseable for ColorMetadata {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct WifSequence<T: Clone + WifValue>(pub Vec<SequenceEntry<T>>);
 
-impl WifSequence<Vec<u32>> {
+impl WifSequence<Vec<usize>> {
     /// Converts a sequence of arrays to a sequence of numbers. Err value is the first index with multiple numbers
     ///
     /// # Errors
     /// The error is the first index with multiple values
-    pub fn to_single_sequence(&self) -> Result<WifSequence<u32>, usize> {
+    pub fn to_single_sequence(&self) -> Result<WifSequence<usize>, usize> {
         Ok(WifSequence(
             self.0
                 .iter()
                 .map(SequenceEntry::to_single)
-                .collect::<Result<Vec<SequenceEntry<u32>>, usize>>()?,
+                .collect::<Result<Vec<SequenceEntry<usize>>, usize>>()?,
         ))
     }
 }
@@ -475,7 +475,7 @@ impl<T: Clone + WifValue> WifSequence<T> {
     /// let map = indexmap! {
     ///     String::from("0") => Some(String::from("1"))
     /// };
-    /// let sequence = WifSequence::<u32>::from_index_map(&map).0;
+    /// let sequence = WifSequence::<usize>::from_index_map(&map).0;
     /// assert_eq!(SequenceError::Zero(0), sequence.validate().unwrap_err());
     /// ```
     pub fn validate(&self) -> Result<(), SequenceError> {
