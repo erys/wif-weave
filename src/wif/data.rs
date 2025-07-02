@@ -4,8 +4,9 @@ use crate::Section;
 use crate::wif::{ParseError, SequenceError};
 use indexmap::{IndexMap, indexmap};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::num::{ParseFloatError, ParseIntError};
-use std::vec;
+use std::{slice, vec};
 use strum::EnumString;
 
 const TRUES: [&str; 6] = ["true", "yes", "t", "y", "on", "1"];
@@ -389,6 +390,14 @@ impl<T: Clone + WifValue> WifParseable for WifSequence<T> {
     }
 }
 
+impl<T: Copy + WifValue> WifSequence<T> {
+    /// Convert to a map of index to value
+    #[must_use]
+    pub fn to_map(&self) -> HashMap<usize, T> {
+        self.entry_iter().map(|e| (e.index, e.value)).collect()
+    }
+}
+
 impl<T: Clone + WifValue + Default> WifSequence<T> {
     /// Same as [`from_array`](Self::from_array) but it accepts [None] in place of 0 values
     pub fn from_option_array(sequence: &[Option<T>]) -> Self {
@@ -431,6 +440,16 @@ impl<T: Clone + WifValue> WifSequence<T> {
                 })
                 .collect(),
         )
+    }
+    /// Convert to a map of index to value
+    #[must_use]
+    pub fn to_borrowed_map(&self) -> HashMap<usize, &T> {
+        self.entry_iter().map(|e| (e.index, &e.value)).collect()
+    }
+
+    /// Iterator of entries
+    pub fn entry_iter(&self) -> slice::Iter<SequenceEntry<T>> {
+        self.0.iter()
     }
 
     /// Creates an iterator that returns the values in the sequence, wrapped in an option, with `None` for missing values

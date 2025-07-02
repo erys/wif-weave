@@ -79,3 +79,16 @@ fn parse_simple_fiberworks_wif() {
     let wif_string = wif.writes();
     assert_eq!(wif, Wif::read(wif_string).unwrap().0)
 }
+
+#[test]
+fn parse_color_fiberworks_wif() {
+    let (wif, errors) = Wif::load("wifs/simple_fiberworks_with_colors_draft.wif").unwrap();
+    assert_eq!(errors, HashMap::new());
+    assert_eq!(
+        wif.warp().unwrap().color_index().unwrap().as_option(),
+        Some(&4)
+    );
+
+    let color_map = wif.color_palette().unwrap().colors().unwrap().to_map();
+    assert_eq!(color_map.get(&4).unwrap(), &WifColor(0, 266, 999));
+}
